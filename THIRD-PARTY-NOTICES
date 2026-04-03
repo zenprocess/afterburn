@@ -37,20 +37,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-2. RLM REPL (Recursive Language Model REPL)
+2. RLM (Recursive Language Models)
 ---------------------------------------------
-Source:  https://github.com/fullstackwebdev/rlm_repl
+Source:  https://github.com/alexzhang13/rlm-minimal
 License: MIT
-Author:  fullstackwebdev (https://github.com/fullstackwebdev)
+Author:  Alex L. Zhang (https://github.com/alexzhang13)
 Files:   afterburn/vendor/rlm_repl/
 
-Used for processing session transcripts that exceed LLM context windows
-via recursive decomposition. Based on the paper "Recursive Language Models"
+Reimplemented from the concepts in "Recursive Language Models"
 by Alex L. Zhang, Tim Kraska, and Omar Khattab (arXiv:2512.24601).
+The original rlm-minimal reference implementation is MIT licensed.
+Our reimplementation uses only `requests` (no openai SDK dependency).
 
 MIT License
 
-Copyright (c) 2025 fullstackwebdev
+Copyright (c) 2025 az (Alex Zhang)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -120,8 +120,19 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
 
     # Sort by size descending — analyze biggest (richest) sessions first
     sorted_sessions = sorted(sessions, key=lambda s: s.size_bytes, reverse=True)
-    # Skip sessions > 50MB for now (need RLM REPL)
-    analyzable = [s for s in sorted_sessions if s.size_bytes < 50 * 1024 * 1024][:max_sessions]
+
+    # Split into direct-parse (<10MB) and RLM-required (>=10MB)
+    direct = [s for s in sorted_sessions if s.size_bytes < 10 * 1024 * 1024][:max_sessions]
+    large = [s for s in sorted_sessions if s.size_bytes >= 10 * 1024 * 1024]
+
+    # Analyze large sessions via RLM REPL
+    rlm_findings: list[Finding] = []
+    if large:
+        rlm_findings = _rlm_friction_analysis(large)
+        if rlm_findings:
+            print(f"  RLM analyzed {len(large)} large sessions → {len(rlm_findings)} findings", file=sys.stderr)
+
+    analyzable = direct
 
     for i, session in enumerate(analyzable):
         if i % 20 == 0:
@@ -241,6 +252,109 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
             evidence=f"Occurred {count} times",
             theme="tool_error",
         ))
+
+    # Merge RLM findings for large sessions
+    if rlm_findings:
+        findings.extend(rlm_findings)
+
+    return findings
+
+
+def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
+    """Use RLM REPL to analyze sessions too large for direct parsing."""
+    try:
+        from afterburn.vendor.rlm_repl import RLM_REPL
+    except ImportError as e:
+        print(f"  [warn] RLM REPL not available: {e}", file=sys.stderr)
+        return []
+
+    findings: list[Finding] = []
+    rlm = RLM_REPL(max_iterations=15, verbose=True)
+
+    for session in large_sessions:
+        print(f"  [RLM] Analyzing large session {session.session_id[:12]}... ({session.size_bytes / 1024 / 1024:.1f}MB)", file=sys.stderr)
+
+        # Load session as list of message dicts
+        messages = []
+        try:
+            with open(session.file_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        if record.get("type") in ("user", "assistant") and "message" in record:
+                            msg = record["message"]
+                            content = msg.get("content", "")
+                            if isinstance(content, list):
+                                text_parts = []
+                                for block in content:
+                                    if isinstance(block, dict) and block.get("type") == "text":
+                                        text_parts.append(block.get("text", "")[:2000])
+                                content = "\n".join(text_parts)
+                            elif isinstance(content, str):
+                                content = content[:2000]
+                            messages.append({
+                                "role": msg.get("role", "unknown"),
+                                "content": content,
+                                "index": len(messages),
+                            })
+                    except json.JSONDecodeError:
+                        continue
+        except (OSError, PermissionError):
+            continue
+
+        if len(messages) < 10:
+            continue
+
+        try:
+            result = rlm.completion(
+                context=messages,
+                query=(
+                    "Analyze these conversation messages between a user and an AI assistant. "
+                    "Find ALL instances where the user corrected, redirected, or expressed "
+                    "frustration with the assistant. For each, extract:\n"
+                    "1. What the user said (the correction)\n"
+                    "2. What the assistant did wrong (from context)\n"
+                    "3. A theme (wrong_approach, scope_creep, wrong_file, ignored_instruction, etc.)\n\n"
+                    "Return a Python list of dicts with keys: correction, what_went_wrong, theme\n"
+                    "Call FINAL_VAR('findings') when done."
+                ),
+            )
+
+            # Try to parse the result
+            if isinstance(result, str) and result.startswith("["):
+                try:
+                    parsed = json.loads(result)
+                    for item in parsed:
+                        findings.append(Finding(
+                            type="friction",
+                            description=item.get("correction", "")[:200],
+                            confidence=0.8,
+                            frequency=1,
+                            sessions=[session.session_id],
+                            evidence=item.get("what_went_wrong", "")[:300],
+                            theme=item.get("theme", "rlm_detected"),
+                        ))
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(result, list):
+                for item in result:
+                    if isinstance(item, dict):
+                        findings.append(Finding(
+                            type="friction",
+                            description=str(item.get("correction", ""))[:200],
+                            confidence=0.8,
+                            frequency=1,
+                            sessions=[session.session_id],
+                            evidence=str(item.get("what_went_wrong", ""))[:300],
+                            theme=str(item.get("theme", "rlm_detected")),
+                        ))
+
+        except Exception as e:
+            print(f"  [RLM] Error on session {session.session_id[:12]}: {e}", file=sys.stderr)
+            continue
 
     return findings
 
