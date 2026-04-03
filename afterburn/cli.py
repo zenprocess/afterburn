@@ -80,6 +80,16 @@ def main():
     )
     archive_parser.add_argument("--dry-run", action="store_true", help="Show what would be archived")
 
+    # narrative
+    narrative_parser = subparsers.add_parser("narrative", help="Generate a narrative session report")
+    narrative_parser.add_argument("--today", action="store_true", help="Today's sessions only")
+    narrative_parser.add_argument("--week", action="store_true", help="Last 7 days")
+    narrative_parser.add_argument("--month", action="store_true", help="Last 30 days")
+    narrative_parser.add_argument("--since", help="Sessions since date (YYYY-MM-DD)")
+    narrative_parser.add_argument("--project", help="Filter to a specific project slug")
+    narrative_parser.add_argument("--sessions-dir", help="Custom session directory")
+    narrative_parser.add_argument("--no-llm", action="store_true", help="Stats only, no LLM narrative generation")
+
     # install
     install_parser = subparsers.add_parser("install", help="Install Claude Code slash commands")
     install_parser.add_argument(
@@ -107,6 +117,10 @@ def main():
         from afterburn.discover import show_status
 
         show_status()
+    elif args.command == "narrative":
+        from afterburn.narrative import run_narrative
+
+        run_narrative(args)
     elif args.command == "archive":
         from afterburn.archive import run_archive
 
