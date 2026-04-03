@@ -422,4 +422,8 @@ MIT
 
 ---
 
-Part of [standra.ai](https://standra.ai) — Open Standards for the AI-Ready Enterprise
+<p align="center">
+  <a href="https://standra.ai">
+    <img src="docs/standra-footer.svg" alt="Part of standra.ai — Open Standards for the AI-Ready Enterprise" width="480" />
+  </a>
+</p>
