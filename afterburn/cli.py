@@ -16,7 +16,7 @@ def main():
     discover_parser.add_argument(
         "--pass",
         dest="analysis_pass",
-        choices=["friction", "patterns", "gaps"],
+        choices=["friction", "patterns", "gaps", "releases"],
         help="Run a single analysis pass (default: all three)",
     )
     discover_parser.add_argument("--since", help="Only analyze sessions after this date (YYYY-MM-DD)")
@@ -35,6 +35,14 @@ def main():
         "--include-worktrees",
         action="store_true",
         help="Include worktree sessions (excluded by default)",
+    )
+    discover_parser.add_argument(
+        "--projects",
+        help="Comma-separated list of project slugs to include",
+    )
+    discover_parser.add_argument(
+        "--project-group",
+        help="Directory path — include all projects under this path",
     )
     discover_parser.add_argument(
         "--max-calls",
@@ -87,6 +95,14 @@ def main():
     narrative_parser.add_argument("--month", action="store_true", help="Last 30 days")
     narrative_parser.add_argument("--since", help="Sessions since date (YYYY-MM-DD)")
     narrative_parser.add_argument("--project", help="Filter to a specific project slug")
+    narrative_parser.add_argument(
+        "--projects",
+        help="Comma-separated list of project slugs to include",
+    )
+    narrative_parser.add_argument(
+        "--project-group",
+        help="Directory path — include all projects under this path",
+    )
     narrative_parser.add_argument("--sessions-dir", help="Custom session directory")
     narrative_parser.add_argument("--no-llm", action="store_true", help="Stats only, no LLM narrative generation")
 

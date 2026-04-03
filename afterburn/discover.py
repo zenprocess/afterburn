@@ -11,11 +11,23 @@ from afterburn.scanner import SessionInfo, discover_sessions
 def run_discover(args) -> None:
     """Run discovery analysis on session history."""
     sessions_dir = Path(args.sessions_dir) if args.sessions_dir else None
+
+    # Multi-project support
+    projects_list = None
+    if hasattr(args, "projects") and args.projects:
+        projects_list = [p.strip() for p in args.projects.split(",") if p.strip()]
+    project_group = getattr(args, "project_group", None)
+
+    # Auto-include worktrees when doing cross-repo correlation
+    include_wt = args.include_worktrees or bool(projects_list or project_group)
+
     sessions = discover_sessions(
         sessions_dir=sessions_dir,
         project=args.project,
+        projects=projects_list,
+        project_group=project_group,
         since=args.since,
-        include_worktrees=args.include_worktrees,
+        include_worktrees=include_wt,
     )
 
     if not sessions:
@@ -26,7 +38,7 @@ def run_discover(args) -> None:
     print(f"Found {len(sessions)} sessions ({total_size / 1024 / 1024:.1f}MB)")
 
     output_dir = Path(".afterburn")
-    passes = [args.analysis_pass] if args.analysis_pass else ["friction", "patterns", "gaps"]
+    passes = [args.analysis_pass] if args.analysis_pass else ["friction", "patterns", "gaps", "releases"]
     all_findings: list[Finding] = []
 
     for pass_name in passes:
@@ -51,6 +63,14 @@ def _run_pass(pass_name: str, sessions: list[SessionInfo], max_calls: int = 1000
         return run_patterns_pass(sessions, max_sessions=min(200, max_calls))
     elif pass_name == "gaps":
         return run_gaps_pass(sessions, max_sessions=min(100, max_calls))
+    elif pass_name == "releases":
+        from afterburn.dead_releases import detect_dead_releases
+
+        # Use current working directory as repo path
+        import os
+
+        repo_path = os.getcwd()
+        return detect_dead_releases(repo_path)
     else:
         print(f"  Unknown pass: {pass_name}")
         return []

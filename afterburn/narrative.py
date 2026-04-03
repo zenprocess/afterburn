@@ -7,8 +7,14 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from afterburn.passes import _extract_messages
-from afterburn.scanner import SessionInfo, discover_sessions
+from afterburn.passes import (
+    CORRECTION_PATTERNS,
+    _extract_messages,
+    _is_false_positive,
+    classify_correction,
+    suggest_remediation,
+)
+from afterburn.scanner import SessionInfo, discover_sessions, group_sessions_by_parent
 
 
 def _extract_facets(session: SessionInfo) -> dict:
@@ -47,9 +53,11 @@ def _extract_facets(session: SessionInfo) -> dict:
             if match:
                 skills_used.append(match.group(1))
 
-    # Corrections and confirmations
+    # Corrections, confirmations, and correction taxonomy
+    import re
     corrections = 0
     confirmations = 0
+    correction_taxonomy = Counter()
     for msg in user_msgs:
         text = msg.get("content", "").lower().strip()
         if len(text) > 1000 or not text:
@@ -60,6 +68,8 @@ def _extract_facets(session: SessionInfo) -> dict:
         if any(w in text for w in ["no ", "stop", "wrong", "don't", "undo", "revert"]):
             if not any(w in text for w in ["no problem", "no worries", "don't worry", "no need"]):
                 corrections += 1
+                taxonomy = classify_correction(text)
+                correction_taxonomy[taxonomy] += 1
         if any(w in text for w in ["yes", "perfect", "great", "exactly", "awesome", "nice"]):
             if len(text) < 200:
                 confirmations += 1
@@ -72,8 +82,26 @@ def _extract_facets(session: SessionInfo) -> dict:
             first_prompt = text[:300]
             break
 
+    # Detect orchestrator vs agent role
+    is_worktree = "worktree" in session.project_slug
+    is_orchestrator = not is_worktree
+
+    # Count agent dispatches (orchestrator spawning child agents)
+    agents_dispatched = 0
+    agents_succeeded = 0
+    if is_orchestrator:
+        for msg in messages:
+            text = msg.get("content", "")
+            # Detect dispatch/swarm patterns in orchestrator sessions
+            if any(kw in text.lower() for kw in ["dispatching agent", "agent completed", "/dispatch", "/swarm"]):
+                if "dispatch" in text.lower():
+                    agents_dispatched += 1
+                if any(kw in text.lower() for kw in ["agent completed", "succeeded", "completed successfully"]):
+                    agents_succeeded += 1
+
     return {
         "session_id": session.session_id,
+        "project_slug": session.project_slug,
         "size_bytes": session.size_bytes,
         "message_count": len(messages),
         "user_messages": len(user_msgs),
@@ -84,7 +112,12 @@ def _extract_facets(session: SessionInfo) -> dict:
         "skills_used": skills_used,
         "corrections": corrections,
         "confirmations": confirmations,
+        "correction_taxonomy": dict(correction_taxonomy),
         "first_prompt": first_prompt,
+        "is_orchestrator": is_orchestrator,
+        "is_agent": is_worktree,
+        "agents_dispatched": agents_dispatched,
+        "agents_succeeded": agents_succeeded,
     }
 
 
@@ -119,6 +152,27 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
     # Session intents
     intents = [f["first_prompt"] for f in facets if f.get("first_prompt")]
 
+    # Aggregate correction taxonomy counts across all sessions
+    all_taxonomy = Counter()
+    for f in facets:
+        all_taxonomy.update(f.get("correction_taxonomy", {}))
+
+    # Build correction breakdown section
+    classified_taxonomy = {k: v for k, v in all_taxonomy.items() if k != "unclassified"}
+    if classified_taxonomy:
+        taxonomy_lines = "\n".join(
+            f"- {t}: {c}" for t, c in sorted(classified_taxonomy.items(), key=lambda x: -x[1])
+        )
+        unclassified_count = all_taxonomy.get("unclassified", 0)
+        if unclassified_count:
+            taxonomy_lines += f"\n- unclassified: {unclassified_count}"
+    else:
+        taxonomy_lines = "- (no classified corrections)"
+
+    # Generate remediation suggestions
+    remediations = suggest_remediation(all_taxonomy)
+    remediation_lines = "\n".join(f"- {s}" for s in remediations) if remediations else "- (none)"
+
     stats_block = f"""## Session Statistics
 - Sessions: {total_sessions}
 - Total messages: {total_messages}
@@ -128,11 +182,17 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
 - User confirmations: {total_confirmations}
 - Satisfaction signal: {total_confirmations / max(total_corrections + total_confirmations, 1) * 100:.0f}% positive
 
+## Correction Breakdown
+{taxonomy_lines}
+
 ## Top Tools
 {chr(10).join(f'- {name}: {count}x' for name, count in all_tools.most_common(10))}
 
 ## Skills Used
 {chr(10).join(f'- /{name}: {count}x' for name, count in all_skills.most_common(10)) if all_skills else '- (none detected)'}
+
+## Remediation Suggestions
+{remediation_lines}
 """
 
     prompt = f"""You are writing a development activity narrative report. Write in second person ("you").
@@ -149,9 +209,9 @@ Here are the first prompts from each session (what the user wanted to do):
 Write a concise narrative report with these sections:
 1. **What You Worked On** — summarize the main themes/goals from the session intents (3-5 bullet points)
 2. **What Went Well** — based on confirmations vs corrections ratio, tool success rate, and completed work
-3. **What Didn't** — based on corrections, tool errors, and friction signals
+3. **What Didn't** — based on corrections, tool errors, and friction signals. Include a breakdown of correction types if available.
 4. **Patterns** — any recurring themes in what you did or how you worked
-5. **Suggestions** — 2-3 actionable improvements based on the data
+5. **Suggestions** — incorporate the remediation suggestions from the data, plus 1-2 additional actionable improvements
 
 Keep it under 500 words. Be specific, reference actual numbers. No fluff."""
 
@@ -168,6 +228,12 @@ def run_narrative(args) -> None:
     """Generate a narrative session report."""
     sessions_dir = Path(args.sessions_dir) if hasattr(args, "sessions_dir") and args.sessions_dir else None
     project = args.project if hasattr(args, "project") else None
+
+    # Multi-project support
+    projects_list = None
+    if hasattr(args, "projects") and args.projects:
+        projects_list = [p.strip() for p in args.projects.split(",") if p.strip()]
+    project_group = getattr(args, "project_group", None)
 
     # Determine timeframe
     since = None
@@ -187,10 +253,16 @@ def run_narrative(args) -> None:
         since = args.since
         timeframe_label = f"since {since}"
 
+    # Always include worktrees when doing cross-repo correlation
+    include_wt = bool(projects_list or project_group)
+
     sessions = discover_sessions(
         sessions_dir=sessions_dir,
         project=project,
+        projects=projects_list,
+        project_group=project_group,
         since=since,
+        include_worktrees=include_wt,
     )
 
     if not sessions:
@@ -248,6 +320,15 @@ def _stats_only_report(facets: list[dict], timeframe: str, project: str | None) 
     total_corrections = sum(f.get("corrections", 0) for f in facets)
     total_confirmations = sum(f.get("confirmations", 0) for f in facets)
 
+    # Orchestrator / agent breakdown
+    orchestrator_facets = [f for f in facets if f.get("is_orchestrator")]
+    agent_facets = [f for f in facets if f.get("is_agent")]
+    total_dispatched = sum(f.get("agents_dispatched", 0) for f in orchestrator_facets)
+    total_succeeded = sum(f.get("agents_succeeded", 0) for f in orchestrator_facets)
+
+    # Only attribute corrections to orchestrator sessions
+    orchestrator_corrections = sum(f.get("corrections", 0) for f in orchestrator_facets)
+
     all_tools = Counter()
     for f in facets:
         all_tools.update(f.get("tool_calls", {}))
@@ -257,16 +338,49 @@ def _stats_only_report(facets: list[dict], timeframe: str, project: str | None) 
         all_skills.update(f.get("skills_used", []))
 
     lines = [
-        f"## Summary",
+        "## Summary",
         f"- **Sessions**: {total_sessions}",
+        f"  - Orchestrator sessions: {len(orchestrator_facets)}",
+        f"  - Agent sessions: {len(agent_facets)}",
         f"- **Messages**: {total_messages}",
         f"- **Tool calls**: {total_tools} ({total_errors} errors, {total_errors / max(total_tools, 1) * 100:.1f}%)",
-        f"- **Corrections**: {total_corrections}",
+        f"- **Corrections** (orchestrator only): {orchestrator_corrections}",
         f"- **Confirmations**: {total_confirmations}",
-        f"- **Satisfaction**: {total_confirmations / max(total_corrections + total_confirmations, 1) * 100:.0f}% positive",
-        "",
-        "## Top Tools",
+        f"- **Satisfaction**: {total_confirmations / max(orchestrator_corrections + total_confirmations, 1) * 100:.0f}% positive",
     ]
+
+    if total_dispatched > 0:
+        lines.append("")
+        lines.append("## Agent Dispatch")
+        lines.append(f"- Agents dispatched: {total_dispatched}")
+        lines.append(f"- Agents succeeded: {total_succeeded}")
+        lines.append(f"- Success rate: {total_succeeded / total_dispatched * 100:.0f}%")
+
+    # Correction taxonomy breakdown
+    all_taxonomy = Counter()
+    for f in facets:
+        all_taxonomy.update(f.get("correction_taxonomy", {}))
+
+    classified_taxonomy = {k: v for k, v in all_taxonomy.items() if k != "unclassified"}
+    if classified_taxonomy:
+        lines.append("")
+        lines.append("## Correction Breakdown")
+        for t, c in sorted(classified_taxonomy.items(), key=lambda x: -x[1]):
+            lines.append(f"- {t}: {c}")
+        unclassified_count = all_taxonomy.get("unclassified", 0)
+        if unclassified_count:
+            lines.append(f"- unclassified: {unclassified_count}")
+
+    # Remediation suggestions
+    remediations = suggest_remediation(all_taxonomy)
+    if remediations:
+        lines.append("")
+        lines.append("## Remediation Suggestions")
+        for s in remediations:
+            lines.append(f"- {s}")
+
+    lines.append("")
+    lines.append("## Top Tools")
     for name, count in all_tools.most_common(10):
         lines.append(f"- {name}: {count}x")
 

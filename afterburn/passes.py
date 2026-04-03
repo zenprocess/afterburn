@@ -22,6 +22,94 @@ CORRECTION_PATTERNS = [
     (r"\bwrong (file|function|approach|direction)\b", "wrong_target"),
 ]
 
+# Correction taxonomy — sub-classifies corrections by type
+CORRECTION_TAXONOMY: dict[str, list[str]] = {
+    "process": [
+        r"\bwhy did you push\b",
+        r"\byou should have\b",
+        r"\brun .+ first\b",
+        r"\bcheck before\b",
+        r"\bbefore you\b.*\b(commit|push|deploy|merge)\b",
+        r"\bshould.*(have|ve) (checked|tested|asked)\b",
+    ],
+    "accuracy": [
+        r"\bthat'?s wrong\b",
+        r"\bincorrect\b",
+        r"\bnot right\b",
+        r"\bactually it'?s\b",
+        r"\bthat'?s not (true|correct|accurate)\b",
+        r"\bno,?\s+it'?s\b",
+    ],
+    "scope": [
+        r"\bjust\b",
+        r"\bonly\b",
+        r"\btoo much\b",
+        r"\bi just wanted\b",
+        r"\bthat'?s overkill\b",
+        r"\bdon'?t need (all|that|this)\b",
+        r"\bover.?engineer\b",
+    ],
+    "tooling": [
+        r"\buse .+ instead\b",
+        r"\bwrong command\b",
+        r"\bnot found\b",
+        r"\bpython3 not python\b",
+        r"\bwrong tool\b",
+        r"\bcommand.*(not|doesn'?t)\b",
+    ],
+    "missing": [
+        r"\byou forgot\b",
+        r"\bwhat about\b",
+        r"\bis anything else\b",
+        r"\bdid you check\b",
+        r"\bmissing\b",
+        r"\byou (missed|skipped|left out)\b",
+    ],
+}
+
+
+def classify_correction(text: str) -> str:
+    """Classify a correction message into a taxonomy type.
+
+    Returns the taxonomy type (process, accuracy, scope, tooling, missing)
+    or "unclassified" if no pattern matches.
+    """
+    text_lower = text.lower()
+    for taxonomy_type, patterns in CORRECTION_TAXONOMY.items():
+        for pattern in patterns:
+            if re.search(pattern, text_lower):
+                return taxonomy_type
+    return "unclassified"
+
+
+def suggest_remediation(taxonomy_counts: Counter) -> list[str]:
+    """Return targeted suggestions based on correction taxonomy distribution.
+
+    Args:
+        taxonomy_counts: Counter mapping taxonomy type to count.
+
+    Returns:
+        List of actionable suggestion strings for the most frequent types.
+    """
+    if not taxonomy_counts:
+        return []
+
+    suggestions_map = {
+        "process": "Add pre-commit hooks or workflow checklists",
+        "accuracy": "Add verification steps to CLAUDE.md",
+        "scope": "Add scope constraints: 'Answer in N sentences max'",
+        "tooling": "Fix environment detection or add tool aliases",
+        "missing": "Add completion checklists to skills",
+    }
+
+    suggestions = []
+    # Sort by count descending, only include types with at least 1 occurrence
+    for taxonomy_type, count in taxonomy_counts.most_common():
+        if count > 0 and taxonomy_type in suggestions_map:
+            suggestions.append(suggestions_map[taxonomy_type])
+
+    return suggestions
+
 # Phrases that look like corrections but aren't
 FALSE_POSITIVE_PATTERNS = [
     r"\bno\s+(problem|worries|rush|issue|need)\b",
@@ -114,6 +202,7 @@ def _extract_tool_errors(messages: list[dict]) -> list[dict]:
 def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> list[Finding]:
     """Extract friction signals from sessions."""
     correction_themes: dict[str, list] = defaultdict(list)
+    correction_taxonomy_counts: Counter = Counter()
     tool_denial_counts: Counter = Counter()
     error_patterns: Counter = Counter()
     total_analyzed = 0
@@ -175,11 +264,16 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
                         prev = messages[j - 1]["content"]
                         context = prev[:300] if prev else ""
 
+                    # Sub-classify the correction by taxonomy
+                    taxonomy = classify_correction(text)
+                    correction_taxonomy_counts[taxonomy] += 1
+
                     correction_themes[theme].append({
                         "session_id": session.session_id,
                         "text": text[:500],
                         "context": context,
                         "project": session.project_slug,
+                        "taxonomy": taxonomy,
                     })
                     break  # One match per message
 
@@ -214,6 +308,10 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
         unique_sessions = list(set(e["session_id"] for e in events))
         # Pick the most recent/representative example
         example = events[0]
+        # Determine dominant taxonomy for this theme
+        theme_taxonomies = Counter(e.get("taxonomy", "unclassified") for e in events)
+        dominant_taxonomy = theme_taxonomies.most_common(1)[0][0]
+        taxonomy_theme = f"correction:{dominant_taxonomy}" if dominant_taxonomy != "unclassified" else theme
         findings.append(Finding(
             type="friction",
             description=f"User correction: {theme.replace('_', ' ')}",
@@ -222,7 +320,24 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
             sessions=unique_sessions[:20],
             evidence=f"Example: \"{example['text'][:300]}\"",
             verification=None,
-            theme=theme,
+            theme=taxonomy_theme,
+        ))
+
+    # Store taxonomy counts and remediation on the findings list as metadata
+    # by adding a summary finding when there are classified corrections
+    classified = {k: v for k, v in correction_taxonomy_counts.items() if k != "unclassified"}
+    if classified:
+        taxonomy_summary = ", ".join(f"{t}: {c}" for t, c in sorted(classified.items(), key=lambda x: -x[1]))
+        remediations = suggest_remediation(correction_taxonomy_counts)
+        remediation_text = "; ".join(remediations) if remediations else "None"
+        findings.append(Finding(
+            type="friction",
+            description="Correction taxonomy breakdown",
+            confidence=1.0,
+            frequency=sum(classified.values()),
+            sessions=[],
+            evidence=f"Breakdown: {taxonomy_summary}. Remediations: {remediation_text}",
+            theme="correction:summary",
         ))
 
     # Convert tool denials to findings
