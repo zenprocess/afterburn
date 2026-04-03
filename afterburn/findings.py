@@ -1,0 +1,85 @@
+"""Finding data structures and serialization."""
+
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class Finding:
+    """An extracted insight from session analysis."""
+
+    type: str  # friction | pattern | gap
+    description: str
+    confidence: float
+    frequency: int
+    sessions: list[str] = field(default_factory=list)
+    evidence: str = ""
+    verification: str | None = None
+    theme: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict())
+
+    def to_markdown(self) -> str:
+        lines = [f"### {self.description}"]
+        lines.append("")
+        lines.append(f"**Type**: {self.type} | **Confidence**: {self.confidence:.2f} | **Frequency**: {self.frequency}")
+        lines.append(f"**Theme**: {self.theme}")
+        lines.append(f"**Sessions**: {len(self.sessions)} sessions")
+        if self.evidence:
+            lines.append("")
+            lines.append(f"> {self.evidence[:500]}")
+        if self.verification:
+            lines.append("")
+            lines.append(f"**Verify**: `{self.verification}`")
+        lines.append("")
+        return "\n".join(lines)
+
+
+@dataclass
+class SkillCandidate:
+    """A proposed new skill identified from session analysis."""
+
+    name: str
+    description: str
+    steps: list[str] = field(default_factory=list)
+    evidence_sessions: list[str] = field(default_factory=list)
+    draft_skill_md: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def write_findings(findings: list[Finding], output_dir: Path, fmt: str = "markdown") -> None:
+    """Write findings to output files."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    by_type: dict[str, list[Finding]] = {}
+    for f in findings:
+        by_type.setdefault(f.type, []).append(f)
+
+    filenames = {
+        "friction": "fix-list",
+        "pattern": "pattern-catalog",
+        "gap": "skill-gaps",
+    }
+
+    for finding_type, items in by_type.items():
+        basename = filenames.get(finding_type, finding_type)
+        if fmt == "json":
+            path = output_dir / f"{basename}.jsonl"
+            with open(path, "w") as fh:
+                for item in items:
+                    fh.write(item.to_json() + "\n")
+        else:
+            path = output_dir / f"{basename}.md"
+            with open(path, "w") as fh:
+                fh.write(f"# {finding_type.title()} Findings\n\n")
+                fh.write(f"*{len(items)} findings across {len(set(s for i in items for s in i.sessions))} sessions*\n\n")
+                for item in sorted(items, key=lambda x: x.frequency, reverse=True):
+                    fh.write(item.to_markdown())
+                    fh.write("---\n\n")
