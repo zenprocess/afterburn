@@ -42,11 +42,18 @@ def run_discover(args) -> None:
 
 
 def _run_pass(pass_name: str, sessions: list[SessionInfo], max_calls: int = 1000) -> list[Finding]:
-    """Run a single analysis pass. Placeholder for RLM REPL integration."""
-    # TODO: Integrate RLM REPL engine for actual analysis
-    # This is the integration point where vendored rlm_repl processes sessions
-    print(f"  [stub] {pass_name} pass not yet implemented — requires RLM REPL integration")
-    return []
+    """Run a single analysis pass."""
+    from afterburn.passes import run_friction_pass, run_gaps_pass, run_patterns_pass
+
+    if pass_name == "friction":
+        return run_friction_pass(sessions, max_sessions=min(200, max_calls))
+    elif pass_name == "patterns":
+        return run_patterns_pass(sessions, max_sessions=min(200, max_calls))
+    elif pass_name == "gaps":
+        return run_gaps_pass(sessions, max_sessions=min(100, max_calls))
+    else:
+        print(f"  Unknown pass: {pass_name}")
+        return []
 
 
 def _write_provenance(output_dir: Path, sessions: list[SessionInfo], passes: list[str]) -> None:
