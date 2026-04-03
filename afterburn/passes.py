@@ -269,7 +269,7 @@ def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
         return []
 
     findings: list[Finding] = []
-    rlm = RLM_REPL(max_iterations=15, verbose=True)
+    rlm = RLM_REPL(max_iterations=50, verbose=True)
 
     for session in large_sessions:
         print(f"  [RLM] Analyzing large session {session.session_id[:12]}... ({session.size_bytes / 1024 / 1024:.1f}MB)", file=sys.stderr)

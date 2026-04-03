@@ -1,6 +1,12 @@
-# Afterburn
+```
+     _    _____ _____ _____ ____  ____  _   _ ____  _   _
+    / \  |  ___|_   _| ____|  _ \| __ )| | | |  _ \| \ | |
+   / _ \ | |_    | | |  _| | |_) |  _ \| | | | |_) |  \| |
+  / ___ \|  _|   | | | |___|  _ <| |_) | |_| |  _ <| |\  |
+ /_/   \_\_|     |_| |_____|_| \_\____/ \___/|_| \_\_| \_|
 
-**Extract residual intelligence from spent sessions.**
+ Extract residual intelligence from spent sessions.
+```
 
 Afterburn mines your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) conversation history to find what keeps going wrong, what works well, and how to make your skills better — automatically.
 
@@ -13,6 +19,54 @@ Processing: ██████████████████████�
 ✓ Fix list:        .afterburn/fix-list.md         (23 recurring issues found)
 ✓ Pattern catalog: .afterburn/pattern-catalog.md   (12 successful patterns)
 ✓ Skill gaps:      .afterburn/skill-candidates/    (4 candidate skills)
+```
+
+## Architecture
+
+```
+ ~/.claude/projects/                          Your session transcripts
+ ├── -home-user-project/                      (JSONL, one per conversation)
+ │   ├── abc123.jsonl  (2.3MB)
+ │   ├── def456.jsonl  (45MB)  ─── too big ──┐
+ │   └── ghi789.jsonl  (800KB)               │
+ │                                            │
+ ▼                                            ▼
+┌──────────────────────┐    ┌─────────────────────────────────┐
+│  Direct Parse        │    │  RLM REPL Engine                │
+│  (< 10MB sessions)   │    │  (>= 10MB sessions)             │
+│                      │    │                                 │
+│  Regex extraction:   │    │  1. Load JSONL into Python REPL │
+│  • corrections       │    │  2. LLM writes code to filter   │
+│  • tool denials      │    │  3. llm_query() on chunks       │
+│  • error patterns    │    │  4. Aggregate → FINAL()         │
+│  • confirmations     │    │                                 │
+└──────────┬───────────┘    └──────────┬──────────────────────┘
+           │                           │
+           ▼                           ▼
+     ┌─────────────────────────────────────┐
+     │         Findings Engine             │
+     │                                     │
+     │  ┌───────────┐ ┌────────────────┐   │
+     │  │ Friction  │ │ Patterns       │   │
+     │  │ fix-list  │ │ pattern-catalog│   │
+     │  └───────────┘ └────────────────┘   │
+     │  ┌───────────┐ ┌────────────────┐   │
+     │  │ Gaps      │ │ Provenance     │   │
+     │  │ candidates│ │ metadata       │   │
+     │  └───────────┘ └────────────────┘   │
+     └──────────────────┬──────────────────┘
+                        │
+                        ▼
+                  .afterburn/
+                        │
+              ┌─────────┼──── (optional) ────┐
+              ▼                               ▼
+     ┌────────────────┐            ┌──────────────────┐
+     │  Archive       │            │  CCAR Evolve     │
+     │  .tgz old      │            │  Experiment loop  │
+     │  sessions      │            │  on SKILL.md      │
+     │  clean history │            │  keep / discard   │
+     └────────────────┘            └──────────────────┘
 ```
 
 ## What It Does
@@ -50,12 +104,31 @@ Evolving: deploy (baseline correction_rate: 0.34)
 
 Your session files can be enormous — we've seen individual transcripts hit 93MB. No context window can hold that. Afterburn uses **RLM REPL** (Recursive Language Models) to solve this:
 
-1. The session is loaded into a Python REPL as a variable — never into the LLM's context
-2. The root LLM writes Python code to inspect, filter, and chunk the data
-3. It calls `llm_query()` on each chunk for focused analysis
-4. Sub-results are aggregated and synthesized into findings
-
-This means a 93MB file with 45,000 messages gets filtered down to ~200 relevant messages before any expensive LLM calls happen.
+```
+ 93MB session file
+ ┌─────────────────────────────────────────────────┐
+ │ 45,000 messages                                 │
+ │                                                 │
+ │  Root LLM writes Python in the REPL:            │
+ │  ┌───────────────────────────────────────────┐  │
+ │  │ corrections = [m for m in context         │  │
+ │  │   if m['role'] == 'user'                  │  │
+ │  │   and len(m['content']) < 500]            │  │
+ │  │ # 45,000 → 200 candidates                │  │
+ │  │                                           │  │
+ │  │ for batch in chunks(corrections, 20):     │  │
+ │  │     result = llm_query(                   │  │
+ │  │         f"Classify: {batch}")             │  │
+ │  │     findings.extend(result)               │  │
+ │  │                                           │  │
+ │  │ FINAL_VAR('findings')                     │  │
+ │  └───────────────────────────────────────────┘  │
+ └─────────────────────────────────────────────────┘
+                    │
+                    ▼
+         10 classified corrections
+         with themes and evidence
+```
 
 ### The Evolution Loop
 
@@ -139,6 +212,19 @@ afterburn evolve --skill deploy --dry-run
 afterburn status
 ```
 
+### Archive
+
+```bash
+# Archive sessions older than 7 days, clean history
+afterburn archive
+
+# Custom age threshold
+afterburn archive --days 14
+
+# Preview what would be archived
+afterburn archive --dry-run
+```
+
 ### Output
 
 All outputs are written to `.afterburn/` in the current directory:
@@ -157,50 +243,63 @@ All outputs are written to `.afterburn/` in the current directory:
 
 ## Configuration
 
-Afterburn needs an LLM endpoint. It supports two model roles:
+Afterburn auto-detects the best available LLM backend:
 
-| Role | Purpose | Default |
-|------|---------|---------|
-| Root model | Orchestration, strategy, synthesis | Claude API (`ANTHROPIC_API_KEY`) |
-| Recursive model | Chunk analysis (high volume, can be cheaper) | Local vLLM auto-discover |
+```
+ Priority order:
+ ┌─────────────────────────────────────────────┐
+ │ 1. AFTERBURN_API_URL env var set?           │
+ │    └─ Yes → Use OpenAI-compatible API       │──→  vLLM, Ollama, llama.cpp
+ │                                             │
+ │ 2. `claude` CLI available?                  │
+ │    └─ Yes → Use claude -p --model haiku     │──→  Zero config, just works
+ │                                             │
+ │ 3. Fallback → localhost:8080/v1             │──→  Local model expected
+ └─────────────────────────────────────────────┘
+```
+
+### Recommended: Local Model for Large Sessions
+
+Session files can be tens of megabytes. Processing them through a cloud API works but sends large volumes of conversation data over the network. For privacy and speed, **we recommend a local model** via [Ollama](https://ollama.ai) or [vLLM](https://docs.vllm.ai):
+
+```bash
+# Ollama (easiest)
+ollama pull qwen3:32b
+AFTERBURN_API_URL=http://localhost:11434/v1 afterburn discover
+
+# vLLM (fastest, needs GPU)
+AFTERBURN_API_URL=http://localhost:8000/v1 afterburn discover
+```
+
+For smaller session sets or when privacy is not a concern, `claude -p` works with zero configuration — Afterburn auto-detects it.
 
 ### Environment Variables
 
 ```bash
-# Model backends
-AFTERBURN_ROOT_MODEL=claude           # or "auto" for local vLLM
-AFTERBURN_RECURSIVE_MODEL=auto        # vLLM/llama.cpp auto-discover
-AFTERBURN_API_URL=http://localhost:8080/v1  # Local model endpoint
+# Point to your local model
+AFTERBURN_API_URL=http://localhost:11434/v1    # Ollama
+AFTERBURN_API_URL=http://localhost:8000/v1     # vLLM
 
-# For Claude API as root model
-ANTHROPIC_API_KEY=sk-ant-...
+# Or use Claude CLI (auto-detected, no env var needed)
+# Just have `claude` in your PATH
+
+# SSL bypass for self-signed certs
+AFTERBURN_NO_SSL_VERIFY=1
 ```
 
-### Two-Model Architecture
+### Backend Comparison
 
-The recommended setup uses Claude for orchestration (strong reasoning) and a local model for chunk analysis (cheap, fast, private):
-
-```bash
-# Claude orchestrates, local Qwen handles volume
-AFTERBURN_ROOT_MODEL=claude
-AFTERBURN_RECURSIVE_MODEL=auto
-AFTERBURN_API_URL=http://localhost:8080/v1
-```
-
-For fully local operation:
-
-```bash
-# Everything local — no API key needed
-AFTERBURN_ROOT_MODEL=auto
-AFTERBURN_RECURSIVE_MODEL=auto
-AFTERBURN_API_URL=http://localhost:8080/v1
-```
+| Backend | Best for | Setup |
+|---------|----------|-------|
+| **Ollama** | Easy local setup, moderate sessions | `ollama pull qwen3:32b` |
+| **vLLM** | Large sessions, GPU available | Server with CUDA |
+| **claude -p** | Small sessions, zero config | Just have Claude Code installed |
 
 ## Privacy
 
 - **Read-only**: Session files are never modified
 - **Redaction**: Outputs sanitize secrets (API keys, tokens, passwords) and truncate tool results to 200 chars
-- **Local-first**: Runs against local models (vLLM, llama.cpp) with zero data leaving your machine
+- **Local-first**: Runs against local models (vLLM, Ollama) with zero data leaving your machine
 - **No telemetry**: Nothing phones home
 
 ## Requirements
@@ -208,7 +307,7 @@ AFTERBURN_API_URL=http://localhost:8080/v1
 - Python 3.10+
 - `requests` (only pip dependency)
 - `jq` (for CCAR experiment scripts)
-- An LLM endpoint (Claude API or local vLLM/llama.cpp)
+- An LLM backend (see Configuration above)
 - Linux or macOS
 
 ## How It Compares
@@ -223,10 +322,10 @@ AFTERBURN_API_URL=http://localhost:8080/v1
 
 ## Acknowledgements
 
-Afterburn vendors and builds on two open-source projects:
+Afterburn builds on these open-source projects:
 
 - **[CCAR](https://github.com/mitkox/ccar)** by Mitko — Claude Code AutoResearch experiment loop (MIT license)
-- **[RLM REPL](https://github.com/fullstackwebdev/rlm_repl)** by fullstackwebdev — Recursive Language Model REPL engine based on the paper by Zhang, Kraska & Khattab (MIT license)
+- **[RLM](https://github.com/alexzhang13/rlm-minimal)** by Alex Zhang — Recursive Language Models reference implementation (MIT license), based on [arXiv:2512.24601](https://arxiv.org/abs/2512.24601) by Zhang, Kraska & Khattab
 
 The skill evolution approach was inspired by [DSPy's GEPA optimizer](https://dspy.ai/api/optimizers/GEPA/overview/) (Stanford NLP) and [NousResearch's hermes-agent-self-evolution](https://github.com/NousResearch/hermes-agent-self-evolution).
 
