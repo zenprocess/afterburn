@@ -132,7 +132,7 @@ Session transcripts contain everything — code, credentials, API responses, fil
 | **RLM REPL** (fullstackwebdev) | Vendored. Provides the recursive decomposition engine for large context processing. MIT licensed. |
 | **CCAR** (mitkox) | Vendored. Provides the experiment loop infrastructure for skill evolution. MIT licensed. |
 | **DSPy GEPA** (Stanford NLP) | Intellectual ancestor. GEPA's reflective evolutionary optimization inspired the skill evolution loop, but Afterburn uses Claude directly instead of DSPy's Python framework. |
-| **Claude Code /insights** (Anthropic, SPEC-023) | Prior art. Analyzed Claude Code's own source to extract "borrowable patterns." Afterburn generalizes this from a one-time source analysis to a continuous conversation analysis. |
+| **Claude Code source analysis** | Prior art. One-off analysis of Claude Code's own source to extract "borrowable patterns." Afterburn generalizes this from a one-time source analysis to a continuous conversation analysis. |
 | **megacode** (mitkox) | Sibling project using DSPy RLM for security auditing of .NET repos. Demonstrated the RLM tool pattern for codebase analysis. |
 
 ## 7. Limitations and Future Work
@@ -158,3 +158,5 @@ The richest dataset about how AI coding assistants succeed and fail is sitting u
 *Afterburn is open source under the MIT license. Repository: github.com/zenprocess/afterburn*
 
 *Vendored components: RLM REPL (fullstackwebdev, MIT), CCAR (mitkox, MIT)*
+
+*Part of [standra.ai](https://standra.ai) — Open Standards for the AI-Ready Enterprise*

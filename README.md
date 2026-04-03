@@ -30,16 +30,16 @@ Afterburn reads them. It runs three analysis passes:
 Then, optionally, it can **evolve** existing skills:
 
 ```
-$ afterburn evolve --skill dispatch --max-iterations 10
+$ afterburn evolve --skill deploy --max-iterations 10
 
-Evolving: dispatch (baseline correction_rate: 0.34)
+Evolving: deploy (baseline correction_rate: 0.34)
   #1 keep  → 0.31 (added retry guidance for hook failures)
   #2 keep  → 0.28 (removed ambiguous scope language)
   #3 discard → 0.35 (regressed, reverted)
   ...
   #8 keep  → 0.22 (best)
 
-✓ Experiment branch: afterburn/dispatch-1712179200
+✓ Experiment branch: afterburn/deploy-1712179200
   Baseline: 0.34 → Best: 0.22 (35% improvement)
   8 iterations: 5 kept, 2 discarded, 1 crashed
 ```
@@ -90,7 +90,7 @@ Then in Claude Code:
 ```
 /afterburn-discover              # Run all three passes
 /afterburn-discover --pass friction --since 2026-03-01
-/afterburn-evolve --skill dispatch --max-iterations 5
+/afterburn-evolve --skill deploy --max-iterations 5
 /afterburn-status                # Show last run summary
 ```
 
@@ -130,10 +130,10 @@ afterburn discover --max-calls 500
 
 ```bash
 # Evolve a skill with CCAR experiment loop
-afterburn evolve --skill dispatch --max-iterations 10
+afterburn evolve --skill deploy --max-iterations 10
 
 # Dry run — show what would be benchmarked
-afterburn evolve --skill dispatch --dry-run
+afterburn evolve --skill deploy --dry-run
 
 # Check experiment status
 afterburn status
@@ -232,3 +232,7 @@ The skill evolution approach was inspired by [DSPy's GEPA optimizer](https://dsp
 ## License
 
 MIT
+
+---
+
+Part of [standra.ai](https://standra.ai) — Open Standards for the AI-Ready Enterprise

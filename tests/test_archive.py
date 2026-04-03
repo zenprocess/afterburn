@@ -17,7 +17,7 @@ from afterburn.archive import (
 
 def test_current_project_slug():
     assert _current_project_slug("/home/user/myproject") == "-home-user-myproject"
-    assert _current_project_slug("/home/vvladescu/zendev-lite") == "-home-vvladescu-zendev-lite"
+    assert _current_project_slug("/home/dev/webapp") == "-home-dev-webapp"
 
 
 def test_find_stale_sessions():
