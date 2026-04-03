@@ -1,0 +1,244 @@
+# Afterburn — LLM-Ready Documentation
+
+> Extract residual intelligence from spent Claude Code sessions.
+> Repository: https://github.com/zenprocess/afterburn
+> License: MIT | Part of standra.ai — Open Standards for the AI-Ready Enterprise
+
+## What Afterburn Does
+
+Afterburn mines Claude Code conversation history (~/.claude/projects/) to:
+1. Find recurring friction (corrections, errors, tool denials)
+2. Extract successful patterns (confirmed approaches → CLAUDE.md rules)
+3. Identify skill gaps (manual workflows → candidate SKILL.md files)
+4. Generate narrative reports (what you did, what went well, what didn't)
+5. Evolve existing skills via metric-gated experiment loops (CCAR)
+6. Archive old sessions to .tgz and clean history
+
+## Architecture
+
+Session JSONL files → Scanner → Analysis Passes → Findings → Reports
+
+Two processing paths based on session size:
+- < 10MB: Direct regex extraction (no LLM needed)
+- >= 10MB: RLM REPL recursive decomposition (LLM writes Python to chunk and analyze)
+
+Three LLM backends, auto-detected:
+1. AFTERBURN_API_URL → OpenAI-compatible API (vLLM, Ollama)
+2. claude -p → Claude Code CLI pipe mode (zero config)
+3. localhost:8080 fallback
+
+## Session Data Format
+
+Claude Code stores conversations as JSONL at ~/.claude/projects/<project-slug>/*.jsonl
+Each line is a JSON object:
+- type: "user" | "assistant" | "file-history-snapshot"
+- message.role: "user" | "assistant"
+- message.content: string or array of blocks (text, thinking, tool_use, tool_result)
+- sessionId, cwd, version, gitBranch
+
+Worktree sessions (slug contains "worktree") are excluded by default.
+
+## CLI Commands
+
+```
+afterburn discover [--pass friction|patterns|gaps] [--since DATE] [--project SLUG] [--format json] [--max-calls N]
+afterburn narrative [--today|--week|--month|--since DATE] [--project SLUG] [--no-llm]
+afterburn evolve --skill NAME [--max-iterations N] [--dry-run]
+afterburn archive [--days N] [--dry-run]
+afterburn status
+afterburn install [--global]
+```
+
+## Claude Code Slash Commands
+
+After `afterburn install`:
+- /enhanced-insights — Narrative report with selectable timeframe
+- /afterburn-discover — Deep 3-pass analysis
+- /afterburn-evolve — CCAR skill evolution
+- /afterburn-archive — Archive and cleanup
+- /afterburn-status — Last run summary
+
+## Python API
+
+### Scanner
+
+```python
+from afterburn.scanner import discover_sessions, SessionInfo
+
+sessions = discover_sessions(
+    sessions_dir=None,        # Path, default ~/.claude/projects/
+    project="myproject",      # Filter by project slug substring
+    since="2026-04-01",       # Filter by date
+    include_worktrees=False,  # Exclude worktree sessions
+    min_size_bytes=10240,     # Skip trivial sessions
+)
+# Returns list[SessionInfo] with: session_id, project_slug, file_path, size_bytes, mtime
+```
+
+### Discovery
+
+```python
+from afterburn.discover import run_discover
+# Accepts argparse namespace with: analysis_pass, since, project, sessions_dir,
+# format, include_worktrees, max_calls, max_tokens
+# Writes to .afterburn/: fix-list.md, pattern-catalog.md, skill-candidates/
+```
+
+### Findings
+
+```python
+from afterburn.findings import Finding, SkillCandidate, write_findings
+
+finding = Finding(
+    type="friction",          # friction | pattern | gap
+    description="User correction: wrong approach",
+    confidence=0.85,          # 0.0-1.0
+    frequency=12,             # occurrence count
+    sessions=["abc123"],      # session IDs
+    evidence="User said: 'no, not that way'",
+    verification="grep -r 'old_pattern' src/",
+    theme="wrong_approach",
+)
+
+write_findings([finding], Path(".afterburn"), fmt="markdown")  # or "json"
+```
+
+### Narrative
+
+```python
+from afterburn.narrative import run_narrative
+# Accepts argparse namespace with: today, week, month, since, project, sessions_dir, no_llm
+# Writes .afterburn/narrative.md with stats + LLM-generated narrative
+```
+
+### Analysis Passes
+
+```python
+from afterburn.passes import run_friction_pass, run_patterns_pass, run_gaps_pass
+
+# All accept: sessions: list[SessionInfo], max_sessions: int
+# Return: list[Finding]
+
+findings = run_friction_pass(sessions, max_sessions=200)
+# Extracts: user corrections, tool denials, error patterns
+# Sessions >= 10MB analyzed via RLM REPL
+
+findings = run_patterns_pass(sessions, max_sessions=200)
+# Extracts: confirmed approaches, tool sequence patterns
+
+findings = run_gaps_pass(sessions, max_sessions=100)
+# Extracts: skill usage distribution, repeated manual workflows
+```
+
+### RLM REPL Engine
+
+```python
+from afterburn.vendor.rlm_repl import RLM_REPL
+
+rlm = RLM_REPL(
+    root_model="auto",         # or "haiku", model name
+    recursive_model="auto",    # cheaper model for chunk analysis
+    root_api_url="",           # AFTERBURN_API_URL or auto-detect
+    max_iterations=999,        # no artificial cap
+    verbose=True,
+)
+
+result = rlm.completion(
+    context=any_python_object, # loaded into REPL as `context` variable
+    query="Analyze this data and find patterns",
+    system_prompt="",          # optional override
+)
+# Returns: string (the FINAL() answer from the REPL loop)
+
+rlm.cost_summary()
+# Returns: {"root": {calls, tokens}, "recursive": {calls, tokens}}
+```
+
+### LLM Clients
+
+```python
+# OpenAI-compatible API
+from afterburn.vendor.rlm_repl.llm_client import LLMClient
+client = LLMClient(api_url="http://localhost:8000/v1", model="auto")
+response = client.chat([{"role": "user", "content": "Hello"}])
+
+# Claude Code CLI
+from afterburn.vendor.rlm_repl.llm_client import ClaudeCLIClient
+client = ClaudeCLIClient(model="haiku")
+response = client.chat([{"role": "user", "content": "Hello"}])
+
+# Auto-detect best backend
+from afterburn.vendor.rlm_repl.llm_client import _detect_backend
+backend = _detect_backend()  # Returns "api" or "claude"
+```
+
+### Archive
+
+```python
+from afterburn.archive import run_archive
+# Accepts argparse namespace with: days, sessions_dir, cwd, dry_run
+# Archives sessions older than N days to .tgz, cleans history.jsonl
+```
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| AFTERBURN_API_URL | (auto-detect) | OpenAI-compatible API endpoint |
+| AFTERBURN_NO_SSL_VERIFY | (unset) | Set to "1" for self-signed certs |
+| ANTHROPIC_API_KEY | (unset) | For Claude API (if not using CLI) |
+| OPENAI_API_KEY | (unset) | For OpenAI-compatible endpoints |
+
+## Output Files
+
+All written to `.afterburn/` in the working directory:
+
+| File | Format | Content |
+|------|--------|---------|
+| fix-list.md | Markdown | Recurring friction with frequency and evidence |
+| fix-list.jsonl | JSONL (--format json) | Machine-readable findings |
+| pattern-catalog.md | Markdown | Successful patterns with confidence scores |
+| skill-candidates/ | Directory of .md | Draft SKILL.md files |
+| narrative.md | Markdown | Narrative report (from `afterburn narrative`) |
+| provenance.json | JSON | Analysis metadata (sessions, timestamp, passes) |
+| state.json | JSON | Incremental analysis state |
+| errors.log | Text | Processing errors |
+
+## Finding Schema (JSON)
+
+```json
+{
+  "type": "friction|pattern|gap",
+  "description": "string",
+  "confidence": 0.85,
+  "frequency": 12,
+  "sessions": ["session-uuid-1", "session-uuid-2"],
+  "evidence": "string (max 500 chars)",
+  "verification": "shell command or null",
+  "theme": "wrong_approach|tool_denial|tool_error|..."
+}
+```
+
+## Benchmarks
+
+Tested on 93MB session (6,788 messages):
+
+| Model | Backend | Iterations | Time | Findings | Precision |
+|-------|---------|-----------|------|----------|-----------|
+| qwen3-coder | vLLM (fp8) | 22 | 2m 15s | 5 | High |
+| Claude Haiku | claude -p | 2 | 34s | 9 | Medium (some noise) |
+
+Model card: https://servingcard.dev/model/qwen3-coder
+
+## Dependencies
+
+Runtime: Python 3.10+, requests
+Optional: jq (for CCAR scripts)
+Vendored: RLM engine (from arXiv:2512.24601, MIT), CCAR scripts (mitkox/ccar, MIT)
+
+## Provenance
+
+- Paper: "Recursive Language Models" — Zhang, Kraska, Khattab (arXiv:2512.24601)
+- CCAR: https://github.com/mitkox/ccar (MIT)
+- RLM reference: https://github.com/alexzhang13/rlm-minimal (MIT)
+- Inspired by: DSPy GEPA optimizer, NousResearch hermes-agent-self-evolution
