@@ -292,8 +292,59 @@ AFTERBURN_NO_SSL_VERIFY=1
 | Backend | Best for | Setup |
 |---------|----------|-------|
 | **Ollama** | Easy local setup, moderate sessions | `ollama pull qwen3:32b` |
-| **vLLM** | Large sessions, GPU available | Server with CUDA |
-| **claude -p** | Small sessions, zero config | Just have Claude Code installed |
+| **vLLM + [qwen3-coder](https://servingcard.dev/model/qwen3-coder)** | Large sessions, GPU available, highest precision | Server with CUDA |
+| **claude -p** | Small-to-medium sessions, zero config | Just have Claude Code installed |
+
+## Benchmarks
+
+Tested on a real 93MB session transcript (6,788 messages) from a production Claude Code project.
+
+### Friction Pass — 93MB Session
+
+```
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │  Model            │ Iterations │  Time   │ Findings │   Quality    │
+ ├───────────────────┼────────────┼─────────┼──────────┼──────────────┤
+ │  qwen3-coder      │     22     │ 2m 15s  │    5     │  ★★★★★       │
+ │  (vLLM, fp8)      │            │         │          │  High prec.  │
+ ├───────────────────┼────────────┼─────────┼──────────┼──────────────┤
+ │  Claude Haiku     │      2     │    34s  │    9     │  ★★★★☆       │
+ │  (claude -p)      │            │         │          │  Some noise  │
+ └───────────────────┴────────────┴─────────┴──────────┴──────────────┘
+```
+
+### Key Observations
+
+**[qwen3-coder](https://servingcard.dev/model/qwen3-coder)** (80B MoE, fp8 via vLLM):
+- 22 iterations: methodically inspected structure → filtered candidates → classified each
+- 255K input tokens / 4.7K output tokens
+- Every finding was a genuine user correction with full context
+- Extracted precise themes: `wrong_approach`, `redirect`, `scope_creep`
+- Best for: large session analysis where precision matters
+
+**Claude Haiku** (`claude -p --model haiku`):
+- 2 iterations: inspected structure → produced all findings in one shot
+- Found 9 corrections vs qwen's 5 — higher recall
+- Some false positives: session-continuation summaries misclassified as corrections
+- Best for: fast analysis, smaller sessions, or when recall > precision
+
+### Recommendation
+
+```
+ Session size        Recommended backend
+ ──────────────────────────────────────────
+ < 1MB               claude -p (instant)
+ 1-10MB              claude -p or Ollama
+ 10-100MB            vLLM + qwen3-coder
+ > 100MB             vLLM + qwen3-coder
+```
+
+For the **two-model architecture** (best of both worlds), use Claude as root orchestrator and qwen3-coder for recursive chunk analysis:
+
+```bash
+# Root = Claude (fast, precise REPL protocol), Recursive = local qwen3-coder (cheap volume)
+AFTERBURN_API_URL=http://localhost:8000/v1 afterburn discover
+```
 
 ## Privacy
 
@@ -328,6 +379,8 @@ Afterburn builds on these open-source projects:
 - **[RLM](https://github.com/alexzhang13/rlm-minimal)** by Alex Zhang — Recursive Language Models reference implementation (MIT license), based on [arXiv:2512.24601](https://arxiv.org/abs/2512.24601) by Zhang, Kraska & Khattab
 
 The skill evolution approach was inspired by [DSPy's GEPA optimizer](https://dspy.ai/api/optimizers/GEPA/overview/) (Stanford NLP) and [NousResearch's hermes-agent-self-evolution](https://github.com/NousResearch/hermes-agent-self-evolution).
+
+Benchmarked with [qwen3-coder](https://servingcard.dev/model/qwen3-coder) via [ServingCard](https://servingcard.dev) — the model registry for optimized LLM serving configurations.
 
 ## License
 
