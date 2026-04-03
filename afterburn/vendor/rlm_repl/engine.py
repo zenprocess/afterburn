@@ -7,7 +7,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-from afterburn.vendor.rlm_repl.llm_client import LLMClient
+from afterburn.vendor.rlm_repl.llm_client import ClaudeCLIClient, LLMClient, _detect_backend
 from afterburn.vendor.rlm_repl.sandbox import REPLSandbox
 
 
@@ -74,15 +74,28 @@ class RLM_REPL:
     _recursive_client: LLMClient = field(init=False, default=None)
 
     def __post_init__(self):
-        self._root_client = LLMClient(
-            api_url=self.root_api_url,
-            model=self.root_model,
-        )
-        rec_url = self.recursive_api_url or self.root_api_url
-        self._recursive_client = LLMClient(
-            api_url=rec_url,
-            model=self.recursive_model,
-        )
+        backend = _detect_backend()
+
+        if backend == "claude":
+            # Use Claude CLI — model names map to claude models
+            root_model = self.root_model if self.root_model != "auto" else "haiku"
+            rec_model = self.recursive_model if self.recursive_model != "auto" else "haiku"
+            self._root_client = ClaudeCLIClient(model=root_model)
+            self._recursive_client = ClaudeCLIClient(model=rec_model)
+            if self.verbose:
+                import sys
+                print(f"  [RLM] Using Claude CLI (root={root_model}, recursive={rec_model})", file=sys.stderr)
+        else:
+            # Use OpenAI-compatible API
+            self._root_client = LLMClient(
+                api_url=self.root_api_url,
+                model=self.root_model,
+            )
+            rec_url = self.recursive_api_url or self.root_api_url
+            self._recursive_client = LLMClient(
+                api_url=rec_url,
+                model=self.recursive_model,
+            )
 
     def completion(self, context, query: str, system_prompt: str = "") -> str:
         """Run RLM REPL analysis on context with the given query.
