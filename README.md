@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/og-image.svg" alt="Afterburn — Extract residual intelligence from spent sessions" width="800" />
+</p>
+
 ```
      _    _____ _____ _____ ____  ____  _   _ ____  _   _
     / \  |  ___|_   _| ____|  _ \| __ )| | | |  _ \| \ | |
