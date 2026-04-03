@@ -41,8 +41,8 @@ Worktree sessions (slug contains "worktree") are excluded by default.
 ## CLI Commands
 
 ```
-afterburn discover [--pass friction|patterns|gaps] [--since DATE] [--project SLUG] [--format json] [--max-calls N]
-afterburn narrative [--today|--week|--month|--since DATE] [--project SLUG] [--no-llm]
+afterburn discover [--pass friction|patterns|gaps|releases] [--since DATE] [--project SLUG] [--projects A,B,C] [--project-group /path] [--format json] [--max-calls N]
+afterburn narrative [--today|--week|--month|--since DATE] [--project SLUG] [--projects A,B,C] [--project-group /path] [--no-llm]
 afterburn evolve --skill NAME [--max-iterations N] [--dry-run]
 afterburn archive [--days N] [--dry-run]
 afterburn status
@@ -68,6 +68,8 @@ from afterburn.scanner import discover_sessions, SessionInfo
 sessions = discover_sessions(
     sessions_dir=None,        # Path, default ~/.claude/projects/
     project="myproject",      # Filter by project slug substring
+    projects=["repo1","repo2"],  # Multi-project filter (any match)
+    project_group="/home/user/repos",  # All projects under this path
     since="2026-04-01",       # Filter by date
     include_worktrees=False,  # Exclude worktree sessions
     min_size_bytes=10240,     # Skip trivial sessions
@@ -75,12 +77,23 @@ sessions = discover_sessions(
 # Returns list[SessionInfo] with: session_id, project_slug, file_path, size_bytes, mtime
 ```
 
+### Session Correlation
+
+```python
+from afterburn.scanner import group_sessions_by_parent
+
+groups = group_sessions_by_parent(sessions)
+# Returns: {parent_slug: {"parent_sessions": [...], "child_sessions": [...]}}
+# Worktree sessions (agent dispatches) are linked to their parent orchestrator session
+```
+
 ### Discovery
 
 ```python
 from afterburn.discover import run_discover
-# Accepts argparse namespace with: analysis_pass, since, project, sessions_dir,
-# format, include_worktrees, max_calls, max_tokens
+# Accepts argparse namespace with: analysis_pass, since, project, projects,
+# project_group, sessions_dir, format, include_worktrees, max_calls, max_tokens
+# Passes: friction, patterns, gaps, releases
 # Writes to .afterburn/: fix-list.md, pattern-catalog.md, skill-candidates/
 ```
 
@@ -97,18 +110,48 @@ finding = Finding(
     sessions=["abc123"],      # session IDs
     evidence="User said: 'no, not that way'",
     verification="grep -r 'old_pattern' src/",
-    theme="wrong_approach",
+    theme="correction:process",   # taxonomy-prefixed themes: correction:{type}
 )
 
 write_findings([finding], Path(".afterburn"), fmt="markdown")  # or "json"
+```
+
+### Correction Taxonomy
+
+```python
+from afterburn.passes import classify_correction, suggest_remediation
+from collections import Counter
+
+# Classify a user correction into a taxonomy type
+taxonomy = classify_correction("why did you push without testing?")
+# Returns: "process" | "accuracy" | "scope" | "tooling" | "missing" | "unclassified"
+
+# Generate targeted remediation suggestions
+counts = Counter({"process": 15, "scope": 8, "missing": 3})
+suggestions = suggest_remediation(counts)
+# Returns: ["Add pre-commit hooks or workflow checklists",
+#           "Add scope constraints: 'Answer in N sentences max'",
+#           "Add completion checklists to skills"]
+```
+
+### Dead Release Detection
+
+```python
+from afterburn.dead_releases import detect_dead_releases
+
+findings = detect_dead_releases("/path/to/repo")
+# Scans git tags, finds new functions/classes per release,
+# checks if they have callers in the codebase.
+# Returns Finding objects for unwired code shipped in a release.
 ```
 
 ### Narrative
 
 ```python
 from afterburn.narrative import run_narrative
-# Accepts argparse namespace with: today, week, month, since, project, sessions_dir, no_llm
-# Writes .afterburn/narrative.md with stats + LLM-generated narrative
+# Accepts argparse namespace with: today, week, month, since, project, projects,
+# project_group, sessions_dir, no_llm
+# Writes .afterburn/narrative.md with stats + correction breakdown + LLM-generated narrative
 ```
 
 ### Analysis Passes
@@ -120,8 +163,9 @@ from afterburn.passes import run_friction_pass, run_patterns_pass, run_gaps_pass
 # Return: list[Finding]
 
 findings = run_friction_pass(sessions, max_sessions=200)
-# Extracts: user corrections, tool denials, error patterns
+# Extracts: user corrections (with taxonomy classification), tool denials, error patterns
 # Sessions >= 10MB analyzed via RLM REPL
+# Corrections sub-classified into: process, accuracy, scope, tooling, missing
 
 findings = run_patterns_pass(sessions, max_sessions=200)
 # Extracts: confirmed approaches, tool sequence patterns
