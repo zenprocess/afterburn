@@ -215,6 +215,7 @@ AFTERBURN_API_URL=http://localhost:8080/v1
 
 | Tool | What it does | Difference |
 |------|-------------|------------|
+| Claude Code `/insights` | Built-in: generates an HTML report of your dev habits (satisfaction, friction, tool usage stats) over 30 days using Haiku | Afterburn goes deeper: mines cross-session patterns, proposes CLAUDE.md rules and new skills, and *evolves* existing skills via experiment loops. Complementary, not competing. |
 | Claude Code `/compact` | Compresses current conversation | Afterburn analyzes *past* conversations |
 | Claude Code auto-memory | Saves key facts per session | Afterburn finds patterns *across* sessions |
 | DSPy optimizers | Optimize LLM prompts via Python framework | Afterburn is framework-free, uses CCAR loops |
