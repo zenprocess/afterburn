@@ -62,6 +62,24 @@ def main():
     # status
     subparsers.add_parser("status", help="Show last run summary")
 
+    # archive
+    archive_parser = subparsers.add_parser("archive", help="Archive old sessions and clean history")
+    archive_parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Archive sessions older than N days (default: 7)",
+    )
+    archive_parser.add_argument(
+        "--sessions-dir",
+        help="Custom session directory (default: ~/.claude/projects/)",
+    )
+    archive_parser.add_argument(
+        "--cwd",
+        help="Working directory to derive project slug from (default: current directory)",
+    )
+    archive_parser.add_argument("--dry-run", action="store_true", help="Show what would be archived")
+
     # install
     install_parser = subparsers.add_parser("install", help="Install Claude Code slash commands")
     install_parser.add_argument(
@@ -89,6 +107,10 @@ def main():
         from afterburn.discover import show_status
 
         show_status()
+    elif args.command == "archive":
+        from afterburn.archive import run_archive
+
+        run_archive(args)
     elif args.command == "install":
         from afterburn.install import run_install
 
