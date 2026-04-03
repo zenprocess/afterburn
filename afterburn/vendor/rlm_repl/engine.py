@@ -66,7 +66,7 @@ class RLM_REPL:
     recursive_model: str = "auto"
     root_api_url: str = ""
     recursive_api_url: str = ""
-    max_iterations: int = 50
+    max_iterations: int = 999
     max_output_length: int = 500_000
     verbose: bool = True
 
