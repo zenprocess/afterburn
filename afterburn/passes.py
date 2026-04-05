@@ -6,7 +6,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from afterburn.findings import Finding
+from afterburn.findings import Finding, SkillCandidate
 from afterburn.scanner import SessionInfo
 
 # Correction signal patterns — high precision, not exhaustive
@@ -109,6 +109,172 @@ def suggest_remediation(taxonomy_counts: Counter) -> list[str]:
             suggestions.append(suggestions_map[taxonomy_type])
 
     return suggestions
+
+def generate_skill_candidates(taxonomy_counts: Counter) -> list[SkillCandidate]:
+    """Generate targeted skill candidates from correction taxonomy distribution.
+
+    Maps the most frequent correction types to specific skill templates:
+    - High process  -> pre-commit hook skill
+    - High accuracy -> verification checklist skill
+    - High scope    -> scope constraint skill
+    - High tooling  -> environment detection skill (no draft — env-specific)
+    - High missing  -> completion checklist skill
+
+    Args:
+        taxonomy_counts: Counter mapping taxonomy type to count.
+
+    Returns:
+        List of SkillCandidate objects, one per qualifying taxonomy type
+        (ordered by frequency, only types with count >= 2).
+    """
+    if not taxonomy_counts:
+        return []
+
+    templates: dict[str, dict] = {
+        "process": {
+            "name": "pre-commit-guard",
+            "description": "Pre-commit hook that enforces workflow steps before committing",
+            "steps": [
+                "Check for uncommitted test runs",
+                "Verify lint passes",
+                "Confirm branch is not main/master",
+            ],
+            "draft_skill_md": (
+                "---\n"
+                "name: pre-commit-guard\n"
+                "description: Enforce workflow steps before committing\n"
+                "---\n\n"
+                "Before committing, verify:\n"
+                "1. Tests pass (`pytest` or project test command)\n"
+                "2. Linter passes (`ruff check .` or project lint command)\n"
+                "3. You are not on main/master branch\n"
+                "4. Changed files are staged intentionally (no accidental additions)\n"
+            ),
+        },
+        "accuracy": {
+            "name": "verify-facts",
+            "description": "Verification checklist — confirm claims before presenting to user",
+            "steps": [
+                "Cross-check file paths exist before referencing",
+                "Verify function signatures match source",
+                "Confirm version numbers against package metadata",
+            ],
+            "draft_skill_md": (
+                "---\n"
+                "name: verify-facts\n"
+                "description: Verification checklist for factual claims\n"
+                "---\n\n"
+                "Before presenting information to the user, verify:\n"
+                "1. File paths exist on disk\n"
+                "2. Function/class names match actual source code\n"
+                "3. Version numbers match package.json / pyproject.toml\n"
+                "4. API endpoints match route definitions\n"
+                "5. CLI flags match argparse/typer definitions\n"
+            ),
+        },
+        "scope": {
+            "name": "scope-guard",
+            "description": "Scope constraints — do only what was asked, nothing more",
+            "steps": [
+                "Parse the user request for explicit scope boundaries",
+                "List files that are in-scope vs out-of-scope",
+                "After completing work, verify no out-of-scope changes",
+            ],
+            "draft_skill_md": (
+                "---\n"
+                "name: scope-guard\n"
+                "description: Prevent over-engineering and scope creep\n"
+                "---\n\n"
+                "Before starting work:\n"
+                "1. Identify exactly what was requested\n"
+                "2. List files that should be touched (and only those)\n"
+                "3. If tempted to refactor adjacent code, STOP and ask first\n\n"
+                "After completing work:\n"
+                "4. Run `git diff --stat` and verify only expected files changed\n"
+                "5. If extra files changed, revert them and explain why\n"
+            ),
+        },
+        "tooling": {
+            "name": "tool-check",
+            "description": "Environment detection — verify tools exist before using them",
+            "steps": [
+                "Check which runtime is available (python3 vs python)",
+                "Detect package manager (npm, yarn, pnpm)",
+                "Verify CLI tools exist before invoking",
+            ],
+            "draft_skill_md": "",  # Environment-specific, no generic draft
+        },
+        "missing": {
+            "name": "completion-checklist",
+            "description": "Completion checklist — ensure nothing is forgotten",
+            "steps": [
+                "Check all imports are added for new references",
+                "Verify error handling is present",
+                "Confirm edge cases are covered",
+                "Ensure documentation is updated if public API changed",
+            ],
+            "draft_skill_md": (
+                "---\n"
+                "name: completion-checklist\n"
+                "description: Ensure nothing is forgotten before declaring done\n"
+                "---\n\n"
+                "Before marking work complete, check:\n"
+                "1. All new imports are added\n"
+                "2. Error handling covers failure cases\n"
+                "3. Edge cases are tested or documented\n"
+                "4. Public API changes have updated docstrings\n"
+                "5. Related tests are updated or added\n"
+                "6. No TODO/FIXME left without an issue reference\n"
+            ),
+        },
+    }
+
+    candidates = []
+    for taxonomy_type, count in taxonomy_counts.most_common():
+        if count < 2:
+            continue
+        if taxonomy_type not in templates:
+            continue
+        tmpl = templates[taxonomy_type]
+        candidates.append(SkillCandidate(
+            name=tmpl["name"],
+            description=tmpl["description"],
+            steps=tmpl["steps"],
+            evidence_sessions=[],  # Populated by caller if needed
+            draft_skill_md=tmpl["draft_skill_md"],
+        ))
+
+    return candidates
+
+
+def extract_taxonomy_from_findings(findings: list[Finding]) -> Counter:
+    """Extract correction taxonomy counts from a list of findings.
+
+    Looks for the taxonomy summary finding (theme='correction:summary')
+    and parses the breakdown from its evidence field.
+
+    Returns a Counter of taxonomy_type -> count.
+    """
+    counts: Counter = Counter()
+    for f in findings:
+        if f.theme == "correction:summary" and f.evidence:
+            # Parse "Breakdown: process: 5, accuracy: 3. Remediations: ..."
+            import re
+            breakdown_match = re.search(r"Breakdown:\s*(.+?)\.(?:\s*Remediations:|$)", f.evidence)
+            if breakdown_match:
+                pairs = breakdown_match.group(1).split(",")
+                for pair in pairs:
+                    pair = pair.strip()
+                    parts = pair.rsplit(":", 1)
+                    if len(parts) == 2:
+                        taxonomy_type = parts[0].strip()
+                        try:
+                            count = int(parts[1].strip())
+                            counts[taxonomy_type] = count
+                        except ValueError:
+                            pass
+    return counts
+
 
 # Phrases that look like corrections but aren't
 FALSE_POSITIVE_PATTERNS = [

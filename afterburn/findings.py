@@ -54,6 +54,45 @@ class SkillCandidate:
         return asdict(self)
 
 
+def write_skill_candidates(candidates: list["SkillCandidate"], output_dir: Path) -> None:
+    """Write skill candidates to output directory.
+
+    Generates a markdown summary and individual skill drafts.
+    """
+    if not candidates:
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write summary
+    summary_path = output_dir / "skill-candidates.md"
+    lines = [
+        "# Skill Candidates\n",
+        f"*{len(candidates)} skills proposed from correction taxonomy analysis*\n",
+    ]
+    for i, c in enumerate(candidates, 1):
+        lines.append(f"## {i}. {c.name}\n")
+        lines.append(f"**{c.description}**\n")
+        if c.steps:
+            lines.append("Steps:")
+            for step in c.steps:
+                lines.append(f"- {step}")
+            lines.append("")
+        if c.draft_skill_md:
+            lines.append(f"Draft skill written to `skills/{c.name}.md`\n")
+        lines.append("")
+
+    summary_path.write_text("\n".join(lines))
+
+    # Write individual skill drafts
+    skills_dir = output_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for c in candidates:
+        if c.draft_skill_md:
+            skill_path = skills_dir / f"{c.name}.md"
+            skill_path.write_text(c.draft_skill_md)
+
+
 def write_findings(findings: list[Finding], output_dir: Path, fmt: str = "markdown") -> None:
     """Write findings to output files."""
     output_dir.mkdir(parents=True, exist_ok=True)

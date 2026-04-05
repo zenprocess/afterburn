@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from afterburn.findings import Finding, write_findings
+from afterburn.findings import Finding, write_findings, write_skill_candidates
 from afterburn.scanner import SessionInfo, discover_sessions
 
 
@@ -48,6 +48,16 @@ def run_discover(args) -> None:
         print(f"  Found {len(findings)} {pass_name} findings")
 
     write_findings(all_findings, output_dir, fmt=args.format)
+
+    # Generate skill candidates from correction taxonomy
+    from afterburn.passes import extract_taxonomy_from_findings, generate_skill_candidates
+
+    taxonomy_counts = extract_taxonomy_from_findings(all_findings)
+    skill_candidates = generate_skill_candidates(taxonomy_counts)
+    if skill_candidates:
+        write_skill_candidates(skill_candidates, output_dir)
+        print(f"  Generated {len(skill_candidates)} skill candidates from correction taxonomy")
+
     _write_provenance(output_dir, sessions, passes)
 
     print(f"\nResults written to {output_dir}/")
