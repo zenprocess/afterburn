@@ -2,7 +2,13 @@
 
 import json
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _utcnow_iso() -> str:
+    """Return current UTC time as ISO-8601 with 'Z' suffix."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass
@@ -17,6 +23,15 @@ class Finding:
     evidence: str = ""
     verification: str | None = None
     theme: str = ""
+    # Optional provenance — populated by callers that know the project context
+    # (e.g. a worker that reconstructs sessions per-project). None = unknown,
+    # which preserves backward compatibility with existing fixtures and tests.
+    project_slug: str | None = None
+    # ISO-8601 UTC timestamp recorded when the finding object was created.
+    # Lets downstream consumers (dashboards, retention sweeps) reason about
+    # "findings produced in the most recent run" without bookkeeping outside
+    # the dataclass.
+    created_at: str = field(default_factory=_utcnow_iso)
 
     def to_dict(self) -> dict:
         return asdict(self)
