@@ -156,7 +156,7 @@ Everything else (layout, typography, grid, badge, effects) stays identical.
 | Project | Stop 1 | Stop 2 | Stop 3 | Stop 4 | Metaphor |
 |---------|--------|--------|--------|--------|----------|
 | Afterburn | #ff4500 | #ff6b35 | #ffa500 | #ffd700 | Fire |
-| Switchyard | #0066ff | #3388ff | #55aaff | #88ccff | Rail/signal |
+| Dispatch | #0066ff | #3388ff | #55aaff | #88ccff | Rail/signal |
 | Sentinel | #00cc66 | #33dd88 | #66eeaa | #99ffcc | Shield/scan |
 | Sieeve | #8833ff | #9955ff | #aa77ff | #cc99ff | Filter/prism |
 | ServingCard | #ff3366 | #ff5588 | #ff77aa | #ff99cc | Card/benchmark |

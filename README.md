@@ -112,7 +112,7 @@ Multi-agent dispatches create dozens of worktree sessions that are actually one 
 afterburn narrative --week --project-group /home/user/orchestrator
 
 # Or specific repos
-afterburn discover --projects sieeve,switchyard,zendev-lite
+afterburn discover --projects sieeve,zendev-lite,axiom
 ```
 
 Then, optionally, it can **evolve** existing skills:
