@@ -1,7 +1,6 @@
 """Session file discovery and filtering."""
 
 import json
-import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -163,11 +162,15 @@ def group_sessions_by_parent(
 
         if parent_slug is not None:
             # This is a worktree / child session
-            bucket = groups.setdefault(parent_slug, {"parent_sessions": [], "child_sessions": []})
+            bucket = groups.setdefault(
+                parent_slug, {"parent_sessions": [], "child_sessions": []}
+            )
             bucket["child_sessions"].append(session)
         else:
             # This is a parent (non-worktree) session
-            bucket = groups.setdefault(session.project_slug, {"parent_sessions": [], "child_sessions": []})
+            bucket = groups.setdefault(
+                session.project_slug, {"parent_sessions": [], "child_sessions": []}
+            )
             bucket["parent_sessions"].append(session)
 
     return groups

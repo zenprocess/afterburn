@@ -11,12 +11,16 @@ from afterburn.scanner import (
 )
 
 
-def _create_session(base_dir: Path, slug: str, session_id: str, size_kb: int = 20) -> Path:
+def _create_session(
+    base_dir: Path, slug: str, session_id: str, size_kb: int = 20
+) -> Path:
     """Create a fake session JSONL file."""
     project_dir = base_dir / slug
     project_dir.mkdir(parents=True, exist_ok=True)
     session_file = project_dir / f"{session_id}.jsonl"
-    content = json.dumps({"type": "user", "message": {"role": "user", "content": "test"}})
+    content = json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "test"}}
+    )
     # Pad to desired size
     lines = [content] * max(1, (size_kb * 1024) // len(content))
     session_file.write_text("\n".join(lines))
@@ -54,8 +58,12 @@ def test_group_sessions_parent_and_children():
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir)
         _create_session(base, "-home-user-project", "parent1", size_kb=20)
-        _create_session(base, "-home-user-project--claude-worktrees-agent-aaa", "child1", size_kb=20)
-        _create_session(base, "-home-user-project--claude-worktrees-agent-bbb", "child2", size_kb=20)
+        _create_session(
+            base, "-home-user-project--claude-worktrees-agent-aaa", "child1", size_kb=20
+        )
+        _create_session(
+            base, "-home-user-project--claude-worktrees-agent-bbb", "child2", size_kb=20
+        )
 
         sessions = discover_sessions(sessions_dir=base, include_worktrees=True)
         groups = group_sessions_by_parent(sessions)
@@ -73,7 +81,9 @@ def test_group_sessions_orphan_children():
     """Worktree sessions whose parent has no sessions still form a group."""
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir)
-        _create_session(base, "-home-user-proj--claude-worktrees-agent-x", "orphan1", size_kb=20)
+        _create_session(
+            base, "-home-user-proj--claude-worktrees-agent-x", "orphan1", size_kb=20
+        )
 
         sessions = discover_sessions(sessions_dir=base, include_worktrees=True)
         groups = group_sessions_by_parent(sessions)
@@ -104,9 +114,13 @@ def test_group_sessions_multiple_parents():
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir)
         _create_session(base, "-home-user-alpha", "a1", size_kb=20)
-        _create_session(base, "-home-user-alpha--claude-worktrees-S-001", "ac1", size_kb=20)
+        _create_session(
+            base, "-home-user-alpha--claude-worktrees-S-001", "ac1", size_kb=20
+        )
         _create_session(base, "-home-user-beta", "b1", size_kb=20)
-        _create_session(base, "-home-user-beta--claude-worktrees-S-002", "bc1", size_kb=20)
+        _create_session(
+            base, "-home-user-beta--claude-worktrees-S-002", "bc1", size_kb=20
+        )
 
         sessions = discover_sessions(sessions_dir=base, include_worktrees=True)
         groups = group_sessions_by_parent(sessions)
@@ -173,8 +187,12 @@ def test_worktree_sessions_identified_as_children():
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir)
         _create_session(base, "-home-user-project", "orchestrator", size_kb=20)
-        _create_session(base, "-home-user-project--claude-worktrees-agent-abc", "agent1", size_kb=20)
-        _create_session(base, "-home-user-project--claude-worktrees-agent-def", "agent2", size_kb=20)
+        _create_session(
+            base, "-home-user-project--claude-worktrees-agent-abc", "agent1", size_kb=20
+        )
+        _create_session(
+            base, "-home-user-project--claude-worktrees-agent-def", "agent2", size_kb=20
+        )
 
         sessions = discover_sessions(sessions_dir=base, include_worktrees=True)
         groups = group_sessions_by_parent(sessions)

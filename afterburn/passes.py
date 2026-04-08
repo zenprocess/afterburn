@@ -4,7 +4,6 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from pathlib import Path
 
 from afterburn.findings import Finding, SkillCandidate
 from afterburn.scanner import SessionInfo
@@ -109,6 +108,7 @@ def suggest_remediation(taxonomy_counts: Counter) -> list[str]:
             suggestions.append(suggestions_map[taxonomy_type])
 
     return suggestions
+
 
 def generate_skill_candidates(taxonomy_counts: Counter) -> list[SkillCandidate]:
     """Generate targeted skill candidates from correction taxonomy distribution.
@@ -236,13 +236,15 @@ def generate_skill_candidates(taxonomy_counts: Counter) -> list[SkillCandidate]:
         if taxonomy_type not in templates:
             continue
         tmpl = templates[taxonomy_type]
-        candidates.append(SkillCandidate(
-            name=tmpl["name"],
-            description=tmpl["description"],
-            steps=tmpl["steps"],
-            evidence_sessions=[],  # Populated by caller if needed
-            draft_skill_md=tmpl["draft_skill_md"],
-        ))
+        candidates.append(
+            SkillCandidate(
+                name=tmpl["name"],
+                description=tmpl["description"],
+                steps=tmpl["steps"],
+                evidence_sessions=[],  # Populated by caller if needed
+                draft_skill_md=tmpl["draft_skill_md"],
+            )
+        )
 
     return candidates
 
@@ -260,7 +262,10 @@ def extract_taxonomy_from_findings(findings: list[Finding]) -> Counter:
         if f.theme == "correction:summary" and f.evidence:
             # Parse "Breakdown: process: 5, accuracy: 3. Remediations: ..."
             import re
-            breakdown_match = re.search(r"Breakdown:\s*(.+?)\.(?:\s*Remediations:|$)", f.evidence)
+
+            breakdown_match = re.search(
+                r"Breakdown:\s*(.+?)\.(?:\s*Remediations:|$)", f.evidence
+            )
             if breakdown_match:
                 pairs = breakdown_match.group(1).split(",")
                 for pair in pairs:
@@ -296,7 +301,10 @@ def _extract_messages(session: SessionInfo) -> list[dict]:
                     continue
                 try:
                     record = json.loads(line)
-                    if record.get("type") in ("user", "assistant") and "message" in record:
+                    if (
+                        record.get("type") in ("user", "assistant")
+                        and "message" in record
+                    ):
                         msg = record["message"]
                         content = msg.get("content", "")
                         # Flatten content blocks to text
@@ -309,16 +317,20 @@ def _extract_messages(session: SessionInfo) -> list[dict]:
                                     elif block.get("type") == "tool_result":
                                         # Check for errors in tool results
                                         if block.get("is_error"):
-                                            text_parts.append(f"[TOOL_ERROR: {block.get('content', '')[:200]}]")
+                                            text_parts.append(
+                                                f"[TOOL_ERROR: {block.get('content', '')[:200]}]"
+                                            )
                                 elif isinstance(block, str):
                                     text_parts.append(block)
                             content = "\n".join(text_parts)
-                        messages.append({
-                            "role": msg.get("role", record["type"]),
-                            "content": content[:5000],  # Cap per-message size
-                            "type": record["type"],
-                            "raw_content": msg.get("content"),
-                        })
+                        messages.append(
+                            {
+                                "role": msg.get("role", record["type"]),
+                                "content": content[:5000],  # Cap per-message size
+                                "type": record["type"],
+                                "raw_content": msg.get("content"),
+                            }
+                        )
                 except json.JSONDecodeError:
                     continue
     except (OSError, PermissionError):
@@ -343,12 +355,17 @@ def _extract_tool_denials(messages: list[dict]) -> list[dict]:
             continue
         for block in raw:
             if isinstance(block, dict) and block.get("type") == "tool_result":
-                if block.get("is_error") and "denied" in str(block.get("content", "")).lower():
-                    denials.append({
-                        "index": i,
-                        "tool": block.get("tool_use_id", "unknown"),
-                        "reason": str(block.get("content", ""))[:200],
-                    })
+                if (
+                    block.get("is_error")
+                    and "denied" in str(block.get("content", "")).lower()
+                ):
+                    denials.append(
+                        {
+                            "index": i,
+                            "tool": block.get("tool_use_id", "unknown"),
+                            "reason": str(block.get("content", ""))[:200],
+                        }
+                    )
     return denials
 
 
@@ -358,14 +375,18 @@ def _extract_tool_errors(messages: list[dict]) -> list[dict]:
     for i, msg in enumerate(messages):
         content = msg.get("content", "")
         if "[TOOL_ERROR:" in content:
-            errors.append({
-                "index": i,
-                "error": content[:300],
-            })
+            errors.append(
+                {
+                    "index": i,
+                    "error": content[:300],
+                }
+            )
     return errors
 
 
-def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> list[Finding]:
+def run_friction_pass(
+    sessions: list[SessionInfo], max_sessions: int = 200
+) -> list[Finding]:
     """Extract friction signals from sessions."""
     correction_themes: dict[str, list] = defaultdict(list)
     correction_taxonomy_counts: Counter = Counter()
@@ -377,7 +398,9 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
     sorted_sessions = sorted(sessions, key=lambda s: s.size_bytes, reverse=True)
 
     # Split into direct-parse (<10MB) and RLM-required (>=10MB)
-    direct = [s for s in sorted_sessions if s.size_bytes < 10 * 1024 * 1024][:max_sessions]
+    direct = [s for s in sorted_sessions if s.size_bytes < 10 * 1024 * 1024][
+        :max_sessions
+    ]
     large = [s for s in sorted_sessions if s.size_bytes >= 10 * 1024 * 1024]
 
     # Analyze large sessions via RLM REPL
@@ -385,7 +408,10 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
     if large:
         rlm_findings = _rlm_friction_analysis(large)
         if rlm_findings:
-            print(f"  RLM analyzed {len(large)} large sessions → {len(rlm_findings)} findings", file=sys.stderr)
+            print(
+                f"  RLM analyzed {len(large)} large sessions → {len(rlm_findings)} findings",
+                file=sys.stderr,
+            )
 
     analyzable = direct
 
@@ -411,11 +437,21 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
                 continue
 
             # Skip system injections, skill content, and command messages
-            if any(marker in text for marker in [
-                "<command-message>", "<command-name>", "Base directory for this skill:",
-                "# /", "## Steps", "## Usage", "---\nname:", "SKILL.md",
-                "<system-reminder>", "system-reminder",
-            ]):
+            if any(
+                marker in text
+                for marker in [
+                    "<command-message>",
+                    "<command-name>",
+                    "Base directory for this skill:",
+                    "# /",
+                    "## Steps",
+                    "## Usage",
+                    "---\nname:",
+                    "SKILL.md",
+                    "<system-reminder>",
+                    "system-reminder",
+                ]
+            ):
                 continue
 
             # Skip very long messages (>1000 chars) — likely pasted content, not corrections
@@ -434,13 +470,15 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
                     taxonomy = classify_correction(text)
                     correction_taxonomy_counts[taxonomy] += 1
 
-                    correction_themes[theme].append({
-                        "session_id": session.session_id,
-                        "text": text[:500],
-                        "context": context,
-                        "project": session.project_slug,
-                        "taxonomy": taxonomy,
-                    })
+                    correction_themes[theme].append(
+                        {
+                            "session_id": session.session_id,
+                            "text": text[:500],
+                            "context": context,
+                            "project": session.project_slug,
+                            "taxonomy": taxonomy,
+                        }
+                    )
                     break  # One match per message
 
         # Find tool denials
@@ -477,62 +515,84 @@ def run_friction_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
         # Determine dominant taxonomy for this theme
         theme_taxonomies = Counter(e.get("taxonomy", "unclassified") for e in events)
         dominant_taxonomy = theme_taxonomies.most_common(1)[0][0]
-        taxonomy_theme = f"correction:{dominant_taxonomy}" if dominant_taxonomy != "unclassified" else theme
-        findings.append(Finding(
-            type="friction",
-            description=f"User correction: {theme.replace('_', ' ')}",
-            confidence=min(1.0, len(events) / total_analyzed) if total_analyzed > 0 else 0,
-            frequency=len(events),
-            sessions=unique_sessions[:20],
-            evidence=f"Example: \"{example['text'][:300]}\"",
-            verification=None,
-            theme=taxonomy_theme,
-        ))
+        taxonomy_theme = (
+            f"correction:{dominant_taxonomy}"
+            if dominant_taxonomy != "unclassified"
+            else theme
+        )
+        findings.append(
+            Finding(
+                type="friction",
+                description=f"User correction: {theme.replace('_', ' ')}",
+                confidence=min(1.0, len(events) / total_analyzed)
+                if total_analyzed > 0
+                else 0,
+                frequency=len(events),
+                sessions=unique_sessions[:20],
+                evidence=f'Example: "{example["text"][:300]}"',
+                verification=None,
+                theme=taxonomy_theme,
+            )
+        )
 
     # Store taxonomy counts and remediation on the findings list as metadata
     # by adding a summary finding when there are classified corrections
-    classified = {k: v for k, v in correction_taxonomy_counts.items() if k != "unclassified"}
+    classified = {
+        k: v for k, v in correction_taxonomy_counts.items() if k != "unclassified"
+    }
     if classified:
-        taxonomy_summary = ", ".join(f"{t}: {c}" for t, c in sorted(classified.items(), key=lambda x: -x[1]))
+        taxonomy_summary = ", ".join(
+            f"{t}: {c}" for t, c in sorted(classified.items(), key=lambda x: -x[1])
+        )
         remediations = suggest_remediation(correction_taxonomy_counts)
         remediation_text = "; ".join(remediations) if remediations else "None"
-        findings.append(Finding(
-            type="friction",
-            description="Correction taxonomy breakdown",
-            confidence=1.0,
-            frequency=sum(classified.values()),
-            sessions=[],
-            evidence=f"Breakdown: {taxonomy_summary}. Remediations: {remediation_text}",
-            theme="correction:summary",
-        ))
+        findings.append(
+            Finding(
+                type="friction",
+                description="Correction taxonomy breakdown",
+                confidence=1.0,
+                frequency=sum(classified.values()),
+                sessions=[],
+                evidence=f"Breakdown: {taxonomy_summary}. Remediations: {remediation_text}",
+                theme="correction:summary",
+            )
+        )
 
     # Convert tool denials to findings
     for reason, count in tool_denial_counts.most_common(10):
         if count < 2:
             continue
-        findings.append(Finding(
-            type="friction",
-            description=f"Tool denial: {reason[:100]}",
-            confidence=min(1.0, count / total_analyzed) if total_analyzed > 0 else 0,
-            frequency=count,
-            sessions=[],
-            evidence=f"Denied {count} times across sessions",
-            theme="tool_denial",
-        ))
+        findings.append(
+            Finding(
+                type="friction",
+                description=f"Tool denial: {reason[:100]}",
+                confidence=min(1.0, count / total_analyzed)
+                if total_analyzed > 0
+                else 0,
+                frequency=count,
+                sessions=[],
+                evidence=f"Denied {count} times across sessions",
+                theme="tool_denial",
+            )
+        )
 
     # Convert error patterns to findings
     for error_type, count in error_patterns.most_common(10):
         if count < 3:
             continue
-        findings.append(Finding(
-            type="friction",
-            description=f"Recurring error: {error_type}",
-            confidence=min(1.0, count / total_analyzed) if total_analyzed > 0 else 0,
-            frequency=count,
-            sessions=[],
-            evidence=f"Occurred {count} times",
-            theme="tool_error",
-        ))
+        findings.append(
+            Finding(
+                type="friction",
+                description=f"Recurring error: {error_type}",
+                confidence=min(1.0, count / total_analyzed)
+                if total_analyzed > 0
+                else 0,
+                frequency=count,
+                sessions=[],
+                evidence=f"Occurred {count} times",
+                theme="tool_error",
+            )
+        )
 
     # Merge RLM findings for large sessions
     if rlm_findings:
@@ -553,7 +613,10 @@ def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
     rlm = RLM_REPL(verbose=True)
 
     for session in large_sessions:
-        print(f"  [RLM] Analyzing large session {session.session_id[:12]}... ({session.size_bytes / 1024 / 1024:.1f}MB)", file=sys.stderr)
+        print(
+            f"  [RLM] Analyzing large session {session.session_id[:12]}... ({session.size_bytes / 1024 / 1024:.1f}MB)",
+            file=sys.stderr,
+        )
 
         # Load session as list of message dicts
         messages = []
@@ -565,22 +628,30 @@ def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
                         continue
                     try:
                         record = json.loads(line)
-                        if record.get("type") in ("user", "assistant") and "message" in record:
+                        if (
+                            record.get("type") in ("user", "assistant")
+                            and "message" in record
+                        ):
                             msg = record["message"]
                             content = msg.get("content", "")
                             if isinstance(content, list):
                                 text_parts = []
                                 for block in content:
-                                    if isinstance(block, dict) and block.get("type") == "text":
+                                    if (
+                                        isinstance(block, dict)
+                                        and block.get("type") == "text"
+                                    ):
                                         text_parts.append(block.get("text", "")[:2000])
                                 content = "\n".join(text_parts)
                             elif isinstance(content, str):
                                 content = content[:2000]
-                            messages.append({
-                                "role": msg.get("role", "unknown"),
-                                "content": content,
-                                "index": len(messages),
-                            })
+                            messages.append(
+                                {
+                                    "role": msg.get("role", "unknown"),
+                                    "content": content,
+                                    "index": len(messages),
+                                }
+                            )
                     except json.JSONDecodeError:
                         continue
         except (OSError, PermissionError):
@@ -609,44 +680,56 @@ def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
                 try:
                     parsed = json.loads(result)
                     for item in parsed:
-                        findings.append(Finding(
-                            type="friction",
-                            description=item.get("correction", "")[:200],
-                            confidence=0.8,
-                            frequency=1,
-                            sessions=[session.session_id],
-                            evidence=item.get("what_went_wrong", "")[:300],
-                            theme=item.get("theme", "rlm_detected"),
-                        ))
+                        findings.append(
+                            Finding(
+                                type="friction",
+                                description=item.get("correction", "")[:200],
+                                confidence=0.8,
+                                frequency=1,
+                                sessions=[session.session_id],
+                                evidence=item.get("what_went_wrong", "")[:300],
+                                theme=item.get("theme", "rlm_detected"),
+                            )
+                        )
                 except json.JSONDecodeError:
                     pass
             elif isinstance(result, list):
                 for item in result:
                     if isinstance(item, dict):
-                        findings.append(Finding(
-                            type="friction",
-                            description=str(item.get("correction", ""))[:200],
-                            confidence=0.8,
-                            frequency=1,
-                            sessions=[session.session_id],
-                            evidence=str(item.get("what_went_wrong", ""))[:300],
-                            theme=str(item.get("theme", "rlm_detected")),
-                        ))
+                        findings.append(
+                            Finding(
+                                type="friction",
+                                description=str(item.get("correction", ""))[:200],
+                                confidence=0.8,
+                                frequency=1,
+                                sessions=[session.session_id],
+                                evidence=str(item.get("what_went_wrong", ""))[:300],
+                                theme=str(item.get("theme", "rlm_detected")),
+                            )
+                        )
 
         except Exception as e:
-            print(f"  [RLM] Error on session {session.session_id[:12]}: {e}", file=sys.stderr)
+            print(
+                f"  [RLM] Error on session {session.session_id[:12]}: {e}",
+                file=sys.stderr,
+            )
             continue
 
     return findings
 
 
-def run_patterns_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> list[Finding]:
+def run_patterns_pass(
+    sessions: list[SessionInfo], max_sessions: int = 200
+) -> list[Finding]:
     """Extract successful patterns from sessions."""
     confirmations: dict[str, list] = defaultdict(list)
     total_analyzed = 0
 
     CONFIRM_PATTERNS = [
-        (r"\b(yes|yeah|yep|exactly|perfect|great|awesome|nice)\b[.!]*$", "explicit_confirmation"),
+        (
+            r"\b(yes|yeah|yep|exactly|perfect|great|awesome|nice)\b[.!]*$",
+            "explicit_confirmation",
+        ),
         (r"\bthat'?s (right|correct|it|what i wanted)\b", "explicit_confirmation"),
         (r"\bgood (job|work|call|approach)\b", "praise"),
         (r"\bkeep (doing|going|that)\b", "continuation"),
@@ -683,11 +766,13 @@ def run_patterns_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
                     if j > 0 and messages[j - 1]["role"] == "assistant":
                         context = messages[j - 1]["content"][:500]
 
-                    confirmations[theme].append({
-                        "session_id": session.session_id,
-                        "text": text[:200],
-                        "context": context,
-                    })
+                    confirmations[theme].append(
+                        {
+                            "session_id": session.session_id,
+                            "text": text[:200],
+                            "context": context,
+                        }
+                    )
                     break
 
     findings: list[Finding] = []
@@ -695,25 +780,31 @@ def run_patterns_pass(sessions: list[SessionInfo], max_sessions: int = 200) -> l
         if len(events) < 3:
             continue
         unique_sessions = list(set(e["session_id"] for e in events))
-        findings.append(Finding(
-            type="pattern",
-            description=f"Confirmed approach: {theme.replace('_', ' ')}",
-            confidence=len(unique_sessions) / total_analyzed if total_analyzed > 0 else 0,
-            frequency=len(events),
-            sessions=unique_sessions[:20],
-            evidence=f"Example confirmation: \"{events[0]['text'][:200]}\" after: \"{events[0]['context'][:200]}\"",
-            theme=theme,
-        ))
+        findings.append(
+            Finding(
+                type="pattern",
+                description=f"Confirmed approach: {theme.replace('_', ' ')}",
+                confidence=len(unique_sessions) / total_analyzed
+                if total_analyzed > 0
+                else 0,
+                frequency=len(events),
+                sessions=unique_sessions[:20],
+                evidence=f'Example confirmation: "{events[0]["text"][:200]}" after: "{events[0]["context"][:200]}"',
+                theme=theme,
+            )
+        )
 
     return findings
 
 
-def run_gaps_pass(sessions: list[SessionInfo], max_sessions: int = 100) -> list[Finding]:
+def run_gaps_pass(
+    sessions: list[SessionInfo], max_sessions: int = 100
+) -> list[Finding]:
     """Detect repeated manual workflows that could be skills."""
     # For gaps, we look for command-message patterns (slash command invocations)
     # and repeated multi-step bash sequences
     skill_invocations: Counter = Counter()
-    command_sequences: Counter = Counter()
+    Counter()
 
     analyzable = [s for s in sessions if s.size_bytes < 50 * 1024 * 1024][:max_sessions]
 
@@ -745,14 +836,16 @@ def run_gaps_pass(sessions: list[SessionInfo], max_sessions: int = 100) -> list[
     if skill_invocations:
         top_skills = skill_invocations.most_common(20)
         skills_summary = ", ".join(f"{name} ({count}x)" for name, count in top_skills)
-        findings.append(Finding(
-            type="gap",
-            description="Skill usage frequency distribution",
-            confidence=1.0,
-            frequency=sum(skill_invocations.values()),
-            sessions=[],
-            evidence=f"Top skills: {skills_summary}",
-            theme="skill_usage",
-        ))
+        findings.append(
+            Finding(
+                type="gap",
+                description="Skill usage frequency distribution",
+                confidence=1.0,
+                frequency=sum(skill_invocations.values()),
+                sessions=[],
+                evidence=f"Top skills: {skills_summary}",
+                theme="skill_usage",
+            )
+        )
 
     return findings

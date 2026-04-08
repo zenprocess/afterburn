@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check afterburn/ tests/
+      - name: Ruff format check
+        run: ruff format --check afterburn/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          pip install -e .
+          pip install pytest
+      - name: Test
+        run: pytest tests/ -v
+
+  leak-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for accidental leaks
+        shell: bash
+        run: |
+          set -e
+          # Patterns: editable-install pseudo-pins, host paths, API keys, private keys.
+          # Excludes node_modules, .git, .venv, the workflows dir itself.
+          PATTERN='UNKNOWN @ file://|/home/[a-z][a-z0-9_-]+/(orchestrator|models)/|sk-ant-api03-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'
+          if git ls-files | grep -vE '^\.github/workflows/' | xargs -r grep -EHn "$PATTERN" 2>/dev/null; then
+            echo "::error::Leak guard found suspicious patterns above"
+            exit 1
+          fi
+          echo "Leak guard clean"

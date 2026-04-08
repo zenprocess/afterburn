@@ -38,7 +38,11 @@ def run_discover(args) -> None:
     print(f"Found {len(sessions)} sessions ({total_size / 1024 / 1024:.1f}MB)")
 
     output_dir = Path(".afterburn")
-    passes = [args.analysis_pass] if args.analysis_pass else ["friction", "patterns", "gaps", "releases"]
+    passes = (
+        [args.analysis_pass]
+        if args.analysis_pass
+        else ["friction", "patterns", "gaps", "releases"]
+    )
     all_findings: list[Finding] = []
 
     for pass_name in passes:
@@ -50,20 +54,27 @@ def run_discover(args) -> None:
     write_findings(all_findings, output_dir, fmt=args.format)
 
     # Generate skill candidates from correction taxonomy
-    from afterburn.passes import extract_taxonomy_from_findings, generate_skill_candidates
+    from afterburn.passes import (
+        extract_taxonomy_from_findings,
+        generate_skill_candidates,
+    )
 
     taxonomy_counts = extract_taxonomy_from_findings(all_findings)
     skill_candidates = generate_skill_candidates(taxonomy_counts)
     if skill_candidates:
         write_skill_candidates(skill_candidates, output_dir)
-        print(f"  Generated {len(skill_candidates)} skill candidates from correction taxonomy")
+        print(
+            f"  Generated {len(skill_candidates)} skill candidates from correction taxonomy"
+        )
 
     _write_provenance(output_dir, sessions, passes)
 
     print(f"\nResults written to {output_dir}/")
 
 
-def _run_pass(pass_name: str, sessions: list[SessionInfo], max_calls: int = 1000) -> list[Finding]:
+def _run_pass(
+    pass_name: str, sessions: list[SessionInfo], max_calls: int = 1000
+) -> list[Finding]:
     """Run a single analysis pass."""
     from afterburn.passes import run_friction_pass, run_gaps_pass, run_patterns_pass
 
@@ -86,7 +97,9 @@ def _run_pass(pass_name: str, sessions: list[SessionInfo], max_calls: int = 1000
         return []
 
 
-def _write_provenance(output_dir: Path, sessions: list[SessionInfo], passes: list[str]) -> None:
+def _write_provenance(
+    output_dir: Path, sessions: list[SessionInfo], passes: list[str]
+) -> None:
     """Write provenance metadata."""
     from datetime import datetime, timezone
 
@@ -113,7 +126,9 @@ def show_status() -> None:
         prov = json.load(f)
 
     print(f"Last run: {prov['analyzed_at']}")
-    print(f"Sessions: {prov['sessions_count']} ({prov['total_bytes'] / 1024 / 1024:.1f}MB)")
+    print(
+        f"Sessions: {prov['sessions_count']} ({prov['total_bytes'] / 1024 / 1024:.1f}MB)"
+    )
     print(f"Passes: {', '.join(prov['passes'])}")
 
     for name in ["fix-list.md", "pattern-catalog.md", "skill-gaps.md"]:

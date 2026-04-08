@@ -3,8 +3,6 @@
 import json
 import re
 import subprocess
-import sys
-from pathlib import Path
 
 from afterburn.findings import Finding
 from afterburn.scanner import SessionInfo
@@ -111,11 +109,17 @@ def find_new_symbols_in_range(
     Returns a list of dicts with keys: name, file, kind (function/class).
     """
     if previous_tag:
-        diff_output = _run_git(repo_path, "diff", f"{previous_tag}..{tag}", "--unified=0")
+        diff_output = _run_git(
+            repo_path, "diff", f"{previous_tag}..{tag}", "--unified=0"
+        )
     else:
         # First tag — diff against empty tree
         diff_output = _run_git(
-            repo_path, "diff", "4b825dc642cb6eb9a060e54bf899d15f7b422b10", tag, "--unified=0"
+            repo_path,
+            "diff",
+            "4b825dc642cb6eb9a060e54bf899d15f7b422b10",
+            tag,
+            "--unified=0",
         )
 
     if not diff_output:
@@ -147,7 +151,12 @@ def find_new_symbols_in_range(
                 # Skip private/dunder
                 if name.startswith("_"):
                     continue
-                kind = "class" if line.strip().startswith("+class") or line.strip().startswith("+ class") else "function"
+                kind = (
+                    "class"
+                    if line.strip().startswith("+class")
+                    or line.strip().startswith("+ class")
+                    else "function"
+                )
                 symbols.append({"name": name, "file": current_file, "kind": kind})
 
         # TypeScript/JavaScript patterns
@@ -155,7 +164,17 @@ def find_new_symbols_in_range(
             m = TS_DEF_PATTERN.match(line)
             if m:
                 name = m.group(1)
-                if name in ("if", "else", "for", "while", "return", "switch", "case", "try", "catch"):
+                if name in (
+                    "if",
+                    "else",
+                    "for",
+                    "while",
+                    "return",
+                    "switch",
+                    "case",
+                    "try",
+                    "catch",
+                ):
                     continue
                 kind = "class" if "class " in line else "function"
                 symbols.append({"name": name, "file": current_file, "kind": kind})
@@ -188,9 +207,7 @@ def detect_dead_releases(repo_path: str) -> list[Finding]:
     return Findings for any dead code at release time.
     """
     # Get all version tags sorted by creation date
-    tag_output = _run_git(
-        repo_path, "tag", "--list", "--sort=-version:refname"
-    )
+    tag_output = _run_git(repo_path, "tag", "--list", "--sort=-version:refname")
     if not tag_output:
         return []
 
@@ -220,15 +237,17 @@ def detect_dead_releases(repo_path: str) -> list[Finding]:
 
         if dead_symbols:
             names = [f"{s['name']} ({s['kind']} in {s['file']})" for s in dead_symbols]
-            findings.append(Finding(
-                type="friction",
-                description=f"Dead code shipped in {tag}: {len(dead_symbols)} unwired symbol(s)",
-                confidence=min(1.0, len(dead_symbols) / max(len(symbols), 1)),
-                frequency=len(dead_symbols),
-                sessions=[],
-                evidence=f"Symbols with zero callers at release: {', '.join(names[:10])}",
-                verification=f"git diff {previous_tag + '..' + tag if previous_tag else tag} --stat",
-                theme="dead_release",
-            ))
+            findings.append(
+                Finding(
+                    type="friction",
+                    description=f"Dead code shipped in {tag}: {len(dead_symbols)} unwired symbol(s)",
+                    confidence=min(1.0, len(dead_symbols) / max(len(symbols), 1)),
+                    frequency=len(dead_symbols),
+                    sessions=[],
+                    evidence=f"Symbols with zero callers at release: {', '.join(names[:10])}",
+                    verification=f"git diff {previous_tag + '..' + tag if previous_tag else tag} --stat",
+                    theme="dead_release",
+                )
+            )
 
     return findings

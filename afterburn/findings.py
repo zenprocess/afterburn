@@ -42,7 +42,9 @@ class Finding:
     def to_markdown(self) -> str:
         lines = [f"### {self.description}"]
         lines.append("")
-        lines.append(f"**Type**: {self.type} | **Confidence**: {self.confidence:.2f} | **Frequency**: {self.frequency}")
+        lines.append(
+            f"**Type**: {self.type} | **Confidence**: {self.confidence:.2f} | **Frequency**: {self.frequency}"
+        )
         lines.append(f"**Theme**: {self.theme}")
         lines.append(f"**Sessions**: {len(self.sessions)} sessions")
         if self.evidence:
@@ -69,7 +71,9 @@ class SkillCandidate:
         return asdict(self)
 
 
-def write_skill_candidates(candidates: list["SkillCandidate"], output_dir: Path) -> None:
+def write_skill_candidates(
+    candidates: list["SkillCandidate"], output_dir: Path
+) -> None:
     """Write skill candidates to output directory.
 
     Generates a markdown summary and individual skill drafts.
@@ -108,7 +112,9 @@ def write_skill_candidates(candidates: list["SkillCandidate"], output_dir: Path)
             skill_path.write_text(c.draft_skill_md)
 
 
-def write_findings(findings: list[Finding], output_dir: Path, fmt: str = "markdown") -> None:
+def write_findings(
+    findings: list[Finding], output_dir: Path, fmt: str = "markdown"
+) -> None:
     """Write findings to output files."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -133,7 +139,9 @@ def write_findings(findings: list[Finding], output_dir: Path, fmt: str = "markdo
             path = output_dir / f"{basename}.md"
             with open(path, "w") as fh:
                 fh.write(f"# {finding_type.title()} Findings\n\n")
-                fh.write(f"*{len(items)} findings across {len(set(s for i in items for s in i.sessions))} sessions*\n\n")
+                fh.write(
+                    f"*{len(items)} findings across {len(set(s for i in items for s in i.sessions))} sessions*\n\n"
+                )
                 for item in sorted(items, key=lambda x: x.frequency, reverse=True):
                     fh.write(item.to_markdown())
                     fh.write("---\n\n")
