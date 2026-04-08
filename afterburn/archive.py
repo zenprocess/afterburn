@@ -100,7 +100,11 @@ def run_archive(args) -> None:
     """Archive old sessions and clean history."""
     cwd = args.cwd if hasattr(args, "cwd") and args.cwd else os.getcwd()
     slug = _current_project_slug(cwd)
-    sessions_base = Path(args.sessions_dir) if hasattr(args, "sessions_dir") and args.sessions_dir else default_sessions_dir()
+    sessions_base = (
+        Path(args.sessions_dir)
+        if hasattr(args, "sessions_dir") and args.sessions_dir
+        else default_sessions_dir()
+    )
     project_dir = sessions_base / slug
 
     if not project_dir.exists():
@@ -126,20 +130,26 @@ def run_archive(args) -> None:
         sys.exit(0)
 
     total_size = sum(f.stat().st_size for f in stale)
-    print(f"Found {len(stale)} sessions older than {max_age} days ({total_size / 1024 / 1024:.1f}MB)")
+    print(
+        f"Found {len(stale)} sessions older than {max_age} days ({total_size / 1024 / 1024:.1f}MB)"
+    )
 
     if args.dry_run:
         print("\n[dry-run] Would archive:")
         for f in stale:
             age_days = (time.time() - f.stat().st_mtime) / 86400
-            print(f"  {f.name} ({f.stat().st_size / 1024:.0f}KB, {age_days:.0f} days old)")
+            print(
+                f"  {f.name} ({f.stat().st_size / 1024:.0f}KB, {age_days:.0f} days old)"
+            )
         return
 
     # Archive
     archive_path = _archive_sessions(stale, project_dir)
     archive_size = archive_path.stat().st_size
     print(f"\nArchived to: {archive_path}")
-    print(f"  {total_size / 1024 / 1024:.1f}MB → {archive_size / 1024 / 1024:.1f}MB ({archive_size / total_size * 100:.0f}%)")
+    print(
+        f"  {total_size / 1024 / 1024:.1f}MB → {archive_size / 1024 / 1024:.1f}MB ({archive_size / total_size * 100:.0f}%)"
+    )
 
     # Collect session IDs before deleting
     session_ids = {f.stem for f in stale}

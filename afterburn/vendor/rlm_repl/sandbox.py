@@ -1,7 +1,6 @@
 """REPL sandbox — executes Python code with injected tools."""
 
 import io
-import sys
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -82,7 +81,9 @@ class REPLSandbox:
 
     def _handle_final_var(self, variable_name: str):
         self._final_var_name = variable_name
-        val = self._globals.get(variable_name, f"[variable '{variable_name}' not found]")
+        val = self._globals.get(
+            variable_name, f"[variable '{variable_name}' not found]"
+        )
         self._final_answer = val
         return val
 
@@ -90,4 +91,8 @@ class REPLSandbox:
     def locals(self) -> dict:
         """Get current sandbox variables (excluding builtins and tools)."""
         skip = {"__builtins__", "llm_query", "FINAL", "FINAL_VAR", "context"}
-        return {k: v for k, v in self._globals.items() if k not in skip and not k.startswith("_")}
+        return {
+            k: v
+            for k, v in self._globals.items()
+            if k not in skip and not k.startswith("_")
+        }

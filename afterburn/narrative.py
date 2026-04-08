@@ -1,20 +1,16 @@
 """Narrative session report — enhanced insights with timeframe and project filtering."""
 
-import json
-import os
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from afterburn.passes import (
-    CORRECTION_PATTERNS,
     _extract_messages,
-    _is_false_positive,
     classify_correction,
     suggest_remediation,
 )
-from afterburn.scanner import SessionInfo, discover_sessions, group_sessions_by_parent
+from afterburn.scanner import SessionInfo, discover_sessions
 
 
 def _extract_facets(session: SessionInfo) -> dict:
@@ -49,12 +45,14 @@ def _extract_facets(session: SessionInfo) -> dict:
         text = msg.get("content", "")
         if "<command-message>" in text:
             import re
+
             match = re.search(r"<command-message>(\w+)</command-message>", text)
             if match:
                 skills_used.append(match.group(1))
 
     # Corrections, confirmations, and correction taxonomy
     import re
+
     corrections = 0
     confirmations = 0
     correction_taxonomy = Counter()
@@ -63,14 +61,22 @@ def _extract_facets(session: SessionInfo) -> dict:
         if len(text) > 1000 or not text:
             continue
         # Skip system injections
-        if "<command-message>" in text or "base directory for this skill" in text.lower():
+        if (
+            "<command-message>" in text
+            or "base directory for this skill" in text.lower()
+        ):
             continue
         if any(w in text for w in ["no ", "stop", "wrong", "don't", "undo", "revert"]):
-            if not any(w in text for w in ["no problem", "no worries", "don't worry", "no need"]):
+            if not any(
+                w in text
+                for w in ["no problem", "no worries", "don't worry", "no need"]
+            ):
                 corrections += 1
                 taxonomy = classify_correction(text)
                 correction_taxonomy[taxonomy] += 1
-        if any(w in text for w in ["yes", "perfect", "great", "exactly", "awesome", "nice"]):
+        if any(
+            w in text for w in ["yes", "perfect", "great", "exactly", "awesome", "nice"]
+        ):
             if len(text) < 200:
                 confirmations += 1
 
@@ -93,10 +99,21 @@ def _extract_facets(session: SessionInfo) -> dict:
         for msg in messages:
             text = msg.get("content", "")
             # Detect dispatch/swarm patterns in orchestrator sessions
-            if any(kw in text.lower() for kw in ["dispatching agent", "agent completed", "/dispatch", "/swarm"]):
+            if any(
+                kw in text.lower()
+                for kw in [
+                    "dispatching agent",
+                    "agent completed",
+                    "/dispatch",
+                    "/swarm",
+                ]
+            ):
                 if "dispatch" in text.lower():
                     agents_dispatched += 1
-                if any(kw in text.lower() for kw in ["agent completed", "succeeded", "completed successfully"]):
+                if any(
+                    kw in text.lower()
+                    for kw in ["agent completed", "succeeded", "completed successfully"]
+                ):
                     agents_succeeded += 1
 
     return {
@@ -121,9 +138,15 @@ def _extract_facets(session: SessionInfo) -> dict:
     }
 
 
-def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | None) -> str:
+def _generate_narrative_llm(
+    facets: list[dict], timeframe: str, project: str | None
+) -> str:
     """Use LLM to generate the narrative report from facets."""
-    from afterburn.vendor.rlm_repl.llm_client import ClaudeCLIClient, LLMClient, _detect_backend
+    from afterburn.vendor.rlm_repl.llm_client import (
+        ClaudeCLIClient,
+        LLMClient,
+        _detect_backend,
+    )
 
     backend = _detect_backend()
     if backend == "claude":
@@ -161,7 +184,8 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
     classified_taxonomy = {k: v for k, v in all_taxonomy.items() if k != "unclassified"}
     if classified_taxonomy:
         taxonomy_lines = "\n".join(
-            f"- {t}: {c}" for t, c in sorted(classified_taxonomy.items(), key=lambda x: -x[1])
+            f"- {t}: {c}"
+            for t, c in sorted(classified_taxonomy.items(), key=lambda x: -x[1])
         )
         unclassified_count = all_taxonomy.get("unclassified", 0)
         if unclassified_count:
@@ -171,7 +195,9 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
 
     # Generate remediation suggestions
     remediations = suggest_remediation(all_taxonomy)
-    remediation_lines = "\n".join(f"- {s}" for s in remediations) if remediations else "- (none)"
+    remediation_lines = (
+        "\n".join(f"- {s}" for s in remediations) if remediations else "- (none)"
+    )
 
     stats_block = f"""## Session Statistics
 - Sessions: {total_sessions}
@@ -186,10 +212,10 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
 {taxonomy_lines}
 
 ## Top Tools
-{chr(10).join(f'- {name}: {count}x' for name, count in all_tools.most_common(10))}
+{chr(10).join(f"- {name}: {count}x" for name, count in all_tools.most_common(10))}
 
 ## Skills Used
-{chr(10).join(f'- /{name}: {count}x' for name, count in all_skills.most_common(10)) if all_skills else '- (none detected)'}
+{chr(10).join(f"- /{name}: {count}x" for name, count in all_skills.most_common(10)) if all_skills else "- (none detected)"}
 
 ## Remediation Suggestions
 {remediation_lines}
@@ -197,7 +223,7 @@ def _generate_narrative_llm(facets: list[dict], timeframe: str, project: str | N
 
     prompt = f"""You are writing a development activity narrative report. Write in second person ("you").
 The timeframe is: {timeframe}
-{f'Project: {project}' if project else 'All projects'}
+{f"Project: {project}" if project else "All projects"}
 
 Here are the aggregated statistics:
 
@@ -216,7 +242,10 @@ Write a concise narrative report with these sections:
 Keep it under 500 words. Be specific, reference actual numbers. No fluff."""
 
     messages = [
-        {"role": "system", "content": "You write concise, data-driven development reports. Second person. No emojis."},
+        {
+            "role": "system",
+            "content": "You write concise, data-driven development reports. Second person. No emojis.",
+        },
         {"role": "user", "content": prompt},
     ]
 
@@ -226,7 +255,11 @@ Keep it under 500 words. Be specific, reference actual numbers. No fluff."""
 
 def run_narrative(args) -> None:
     """Generate a narrative session report."""
-    sessions_dir = Path(args.sessions_dir) if hasattr(args, "sessions_dir") and args.sessions_dir else None
+    sessions_dir = (
+        Path(args.sessions_dir)
+        if hasattr(args, "sessions_dir") and args.sessions_dir
+        else None
+    )
     project = args.project if hasattr(args, "project") else None
 
     # Multi-project support
@@ -243,10 +276,12 @@ def run_narrative(args) -> None:
         timeframe_label = f"today ({since})"
     elif hasattr(args, "week") and args.week:
         from datetime import timedelta
+
         since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
         timeframe_label = f"last 7 days (since {since})"
     elif hasattr(args, "month") and args.month:
         from datetime import timedelta
+
         since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
         timeframe_label = f"last 30 days (since {since})"
     elif hasattr(args, "since") and args.since:
@@ -270,7 +305,9 @@ def run_narrative(args) -> None:
         sys.exit(0)
 
     total_size = sum(s.size_bytes for s in sessions)
-    print(f"Analyzing {len(sessions)} sessions ({total_size / 1024 / 1024:.1f}MB) — {timeframe_label}")
+    print(
+        f"Analyzing {len(sessions)} sessions ({total_size / 1024 / 1024:.1f}MB) — {timeframe_label}"
+    )
 
     # Extract facets from all sessions (no LLM needed for this phase)
     facets = []
@@ -317,7 +354,7 @@ def _stats_only_report(facets: list[dict], timeframe: str, project: str | None) 
     total_messages = sum(f.get("message_count", 0) for f in facets)
     total_tools = sum(f.get("total_tool_calls", 0) for f in facets)
     total_errors = sum(f.get("tool_errors", 0) for f in facets)
-    total_corrections = sum(f.get("corrections", 0) for f in facets)
+    sum(f.get("corrections", 0) for f in facets)
     total_confirmations = sum(f.get("confirmations", 0) for f in facets)
 
     # Orchestrator / agent breakdown

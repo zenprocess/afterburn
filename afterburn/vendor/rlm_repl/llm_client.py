@@ -1,9 +1,8 @@
 """LLM client — supports OpenAI-compatible API or Claude CLI."""
 
-import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import requests
 
@@ -19,7 +18,9 @@ def _detect_backend() -> str:
     try:
         result = subprocess.run(
             ["claude", "--version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             return "claude"

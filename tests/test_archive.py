@@ -43,8 +43,12 @@ def test_archive_sessions():
         project_dir = Path(tmpdir)
         s1 = project_dir / "session1.jsonl"
         s2 = project_dir / "session2.jsonl"
-        s1.write_text('{"type":"user","message":{"role":"user","content":"hello"}}\n' * 100)
-        s2.write_text('{"type":"assistant","message":{"role":"assistant","content":"hi"}}\n' * 50)
+        s1.write_text(
+            '{"type":"user","message":{"role":"user","content":"hello"}}\n' * 100
+        )
+        s2.write_text(
+            '{"type":"assistant","message":{"role":"assistant","content":"hi"}}\n' * 50
+        )
 
         archive_path = _archive_sessions([s1, s2], project_dir)
         assert archive_path.exists()

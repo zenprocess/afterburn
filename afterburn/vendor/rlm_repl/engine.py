@@ -7,7 +7,11 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-from afterburn.vendor.rlm_repl.llm_client import ClaudeCLIClient, LLMClient, _detect_backend
+from afterburn.vendor.rlm_repl.llm_client import (
+    ClaudeCLIClient,
+    LLMClient,
+    _detect_backend,
+)
 from afterburn.vendor.rlm_repl.sandbox import REPLSandbox
 
 
@@ -79,12 +83,18 @@ class RLM_REPL:
         if backend == "claude":
             # Use Claude CLI — model names map to claude models
             root_model = self.root_model if self.root_model != "auto" else "haiku"
-            rec_model = self.recursive_model if self.recursive_model != "auto" else "haiku"
+            rec_model = (
+                self.recursive_model if self.recursive_model != "auto" else "haiku"
+            )
             self._root_client = ClaudeCLIClient(model=root_model)
             self._recursive_client = ClaudeCLIClient(model=rec_model)
             if self.verbose:
                 import sys
-                print(f"  [RLM] Using Claude CLI (root={root_model}, recursive={rec_model})", file=sys.stderr)
+
+                print(
+                    f"  [RLM] Using Claude CLI (root={root_model}, recursive={rec_model})",
+                    file=sys.stderr,
+                )
         else:
             # Use OpenAI-compatible API
             self._root_client = LLMClient(
@@ -113,7 +123,10 @@ class RLM_REPL:
         # Create sandbox with recursive LLM wired in
         def llm_query(prompt: str) -> str:
             messages = [
-                {"role": "system", "content": "You are a helpful analyst. Answer concisely."},
+                {
+                    "role": "system",
+                    "content": "You are a helpful analyst. Answer concisely.",
+                },
                 {"role": "user", "content": prompt},
             ]
             return self._recursive_client.chat(messages, max_tokens=4096)
@@ -124,16 +137,22 @@ class RLM_REPL:
         # Build initial messages
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": (
-                f"Analyze the data in `context` to answer this question:\n\n{query}\n\n"
-                f"Context info: {context_desc}\n\n"
-                "Start by inspecting the context structure."
-            )},
+            {
+                "role": "user",
+                "content": (
+                    f"Analyze the data in `context` to answer this question:\n\n{query}\n\n"
+                    f"Context info: {context_desc}\n\n"
+                    "Start by inspecting the context structure."
+                ),
+            },
         ]
 
         for iteration in range(self.max_iterations):
             if self.verbose:
-                print(f"  [RLM] iteration {iteration + 1}/{self.max_iterations}", file=sys.stderr)
+                print(
+                    f"  [RLM] iteration {iteration + 1}/{self.max_iterations}",
+                    file=sys.stderr,
+                )
 
             # Get LLM response
             response = self._root_client.chat(messages, max_tokens=8192)
@@ -143,16 +162,23 @@ class RLM_REPL:
 
             if not code_blocks:
                 # Check if response contains FINAL() directly in text
-                final_match = re.search(r'FINAL\(["\'](.+?)["\']\)', response, re.DOTALL)
+                final_match = re.search(
+                    r'FINAL\(["\'](.+?)["\']\)', response, re.DOTALL
+                )
                 if final_match:
                     return final_match.group(1)
 
                 # No code and no FINAL — ask LLM to continue
                 messages.append({"role": "assistant", "content": response})
-                messages.append({"role": "user", "content": (
-                    "Please write Python code in a ```repl block to continue analysis. "
-                    "When done, call FINAL(answer) with your answer."
-                )})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Please write Python code in a ```repl block to continue analysis. "
+                            "When done, call FINAL(answer) with your answer."
+                        ),
+                    }
+                )
                 continue
 
             # Execute each code block
@@ -181,7 +207,9 @@ class RLM_REPL:
             if all_stdout:
                 combined_stdout = "\n".join(all_stdout)
                 if len(combined_stdout) > self.max_output_length:
-                    combined_stdout = combined_stdout[:self.max_output_length] + "\n[TRUNCATED]"
+                    combined_stdout = (
+                        combined_stdout[: self.max_output_length] + "\n[TRUNCATED]"
+                    )
                 result_parts.append(f"stdout:\n{combined_stdout}")
             if all_stderr:
                 combined_stderr = "\n".join(all_stderr)

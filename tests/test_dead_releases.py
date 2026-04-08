@@ -2,8 +2,6 @@
 
 import os
 import subprocess
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -27,8 +25,13 @@ def git_repo(tmp_path):
             capture_output=True,
             text=True,
             check=True,
-            env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@t.com",
-                 "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@t.com"},
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "Test",
+                "GIT_AUTHOR_EMAIL": "t@t.com",
+                "GIT_COMMITTER_NAME": "Test",
+                "GIT_COMMITTER_EMAIL": "t@t.com",
+            },
         )
 
     run_git("init")
@@ -49,9 +52,7 @@ def git_repo(tmp_path):
         "def dead_func():\n    return 0\n"
     )
     (repo / "main.py").write_text(
-        "from lib import helper, used_func\n\n"
-        "result = helper()\n"
-        "other = used_func()\n"
+        "from lib import helper, used_func\n\nresult = helper()\nother = used_func()\n"
     )
     run_git("add", ".")
     run_git("commit", "-m", "add functions")
@@ -117,8 +118,13 @@ def test_no_tags_returns_empty(tmp_path):
         ["git", "commit", "-m", "init"],
         cwd=str(repo),
         capture_output=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@t.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@t.com"},
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "t@t.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "t@t.com",
+        },
     )
     findings = detect_dead_releases(str(repo))
     assert findings == []

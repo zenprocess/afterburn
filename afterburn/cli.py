@@ -19,7 +19,9 @@ def main():
         choices=["friction", "patterns", "gaps", "releases"],
         help="Run a single analysis pass (default: all three)",
     )
-    discover_parser.add_argument("--since", help="Only analyze sessions after this date (YYYY-MM-DD)")
+    discover_parser.add_argument(
+        "--since", help="Only analyze sessions after this date (YYYY-MM-DD)"
+    )
     discover_parser.add_argument("--project", help="Filter to a specific project slug")
     discover_parser.add_argument(
         "--sessions-dir",
@@ -57,7 +59,9 @@ def main():
     )
 
     # evolve
-    evolve_parser = subparsers.add_parser("evolve", help="Evolve a skill via experiment loop")
+    evolve_parser = subparsers.add_parser(
+        "evolve", help="Evolve a skill via experiment loop"
+    )
     evolve_parser.add_argument("--skill", required=True, help="Skill name to evolve")
     evolve_parser.add_argument(
         "--max-iterations",
@@ -65,13 +69,17 @@ def main():
         default=10,
         help="Maximum experiment iterations (default: 10)",
     )
-    evolve_parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
+    evolve_parser.add_argument(
+        "--dry-run", action="store_true", help="Show plan without executing"
+    )
 
     # status
     subparsers.add_parser("status", help="Show last run summary")
 
     # archive
-    archive_parser = subparsers.add_parser("archive", help="Archive old sessions and clean history")
+    archive_parser = subparsers.add_parser(
+        "archive", help="Archive old sessions and clean history"
+    )
     archive_parser.add_argument(
         "--days",
         type=int,
@@ -86,11 +94,17 @@ def main():
         "--cwd",
         help="Working directory to derive project slug from (default: current directory)",
     )
-    archive_parser.add_argument("--dry-run", action="store_true", help="Show what would be archived")
+    archive_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be archived"
+    )
 
     # narrative
-    narrative_parser = subparsers.add_parser("narrative", help="Generate a narrative session report")
-    narrative_parser.add_argument("--today", action="store_true", help="Today's sessions only")
+    narrative_parser = subparsers.add_parser(
+        "narrative", help="Generate a narrative session report"
+    )
+    narrative_parser.add_argument(
+        "--today", action="store_true", help="Today's sessions only"
+    )
     narrative_parser.add_argument("--week", action="store_true", help="Last 7 days")
     narrative_parser.add_argument("--month", action="store_true", help="Last 30 days")
     narrative_parser.add_argument("--since", help="Sessions since date (YYYY-MM-DD)")
@@ -104,10 +118,14 @@ def main():
         help="Directory path — include all projects under this path",
     )
     narrative_parser.add_argument("--sessions-dir", help="Custom session directory")
-    narrative_parser.add_argument("--no-llm", action="store_true", help="Stats only, no LLM narrative generation")
+    narrative_parser.add_argument(
+        "--no-llm", action="store_true", help="Stats only, no LLM narrative generation"
+    )
 
     # install
-    install_parser = subparsers.add_parser("install", help="Install Claude Code slash commands")
+    install_parser = subparsers.add_parser(
+        "install", help="Install Claude Code slash commands"
+    )
     install_parser.add_argument(
         "--global",
         dest="global_install",
