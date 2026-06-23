@@ -1,0 +1,45 @@
+name: gate
+on:
+  pull_request:
+    branches: [main]
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  forkd-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: forkd microVM CI (zen-gates gate_run)
+        env:
+          ZEN_GATES_URL: ${{ secrets.ZEN_GATES_URL }}
+          ZEN_GATES_TOKEN: ${{ secrets.ZEN_GATES_TOKEN }}
+        run: |
+          if [ -x ./.forgejo/gates/forkd-ci.sh ]; then ./.forgejo/gates/forkd-ci.sh
+          else echo "forkd-ci not yet wired (cal/forkd plane)"; exit 1; fi
+  cal-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: cal QA-diamond
+        run: |
+          if command -v cal-qa-gate >/dev/null 2>&1; then cal-qa-gate .
+          else echo "cal-qa-gate not on runner (cal plane)"; exit 1; fi
+  ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: OCR diff-review
+        env:
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+          OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+        run: |
+          if command -v ocr >/dev/null 2>&1; then ocr review --from "origin/${{ github.base_ref }}" --to HEAD --format json --fail-on CRITICAL,HIGH
+          else echo "ocr not on runner (cal plane)"; exit 1; fi
