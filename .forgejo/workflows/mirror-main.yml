@@ -1,0 +1,17 @@
+name: mirror-main-to-github
+on:
+  push:
+    branches: [main]
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Push main to GitHub
+        env:
+          GH_MIRROR_TOKEN: ${{ secrets.GH_MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY##*/}"
+          git push "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/zenprocess/${REPO}.git" HEAD:refs/heads/main
