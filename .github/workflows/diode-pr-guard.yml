@@ -1,0 +1,76 @@
+name: Diode PR Guard
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+  issue_comment:
+    types: [created]
+
+jobs:
+  diode-guard:
+    # Skip regular issue comments; only run on PR events or PR comments
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != '')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (PR events only)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diode scan
+        env:
+          DIODE_DENYLIST: ${{ secrets.DIODE_DENYLIST }}
+          GH_EVENT:       ${{ github.event_name }}
+          PR_TITLE:       ${{ github.event.pull_request.title }}
+          PR_BODY:        ${{ github.event.pull_request.body }}
+          COMMENT_BODY:   ${{ github.event.comment.body }}
+          BASE_SHA:       ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA:       ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          FAILED=0
+
+          # --- build scan corpus ---
+          if [ "${GH_EVENT}" = "issue_comment" ]; then
+            SCAN_TEXT="${COMMENT_BODY:-}"
+          else
+            SCAN_TEXT="${PR_TITLE:-}"$'\n'"${PR_BODY:-}"
+            if [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+              COMMITS=$(git log --format='%s%n%b' "${BASE_SHA}..${HEAD_SHA}" 2>/dev/null || true)
+              SCAN_TEXT="${SCAN_TEXT}"$'\n'"${COMMITS}"
+            fi
+          fi
+
+          # --- generic pattern checks (always run, even when denylist is absent) ---
+          if printf '%s' "${SCAN_TEXT}" | grep -qiE '[a-z0-9-]+\.zp\.digital'; then
+            echo "::error::Private infrastructure domain detected (*.zp.digital). Do not reference internal infrastructure in a public repo."
+            FAILED=1
+          fi
+
+          if printf '%s' "${SCAN_TEXT}" | grep -qE 'sk-[A-Za-z0-9-]{8,}'; then
+            echo "::error::Potential secret token detected (sk-... pattern). Do not include credentials in a public repo."
+            FAILED=1
+          fi
+
+          # --- concept denylist checks ---
+          if [ -z "${DIODE_DENYLIST:-}" ]; then
+            echo "::notice::DIODE_DENYLIST secret is unset or empty — concept checks skipped; generic pattern checks still apply."
+          else
+            while IFS= read -r term; do
+              # Skip blank lines in the denylist
+              [ -z "${term}" ] && continue
+              # Escape regex metacharacters; never echo the term itself in output
+              ESCAPED=$(printf '%s' "${term}" | sed 's/[[\.*^$(){}?+|]/\\&/g')
+              if printf '%s' "${SCAN_TEXT}" | grep -qiP "\\b${ESCAPED}\\b" 2>/dev/null; then
+                echo "::error::Private-concept leak detected (do not reference internal projects in a public repo)."
+                FAILED=1
+              fi
+            done <<< "${DIODE_DENYLIST}"
+          fi
+
+          exit "${FAILED}"
