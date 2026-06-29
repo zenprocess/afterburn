@@ -1,0 +1,110 @@
+name: QA Diamond
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect stack and run tests
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ── stack detection ───────────────────────────────────────────────────
+          STACK="docs"
+          if [ -f "pyproject.toml" ]; then
+            STACK="python"
+          elif [ -f "package.json" ]; then
+            STACK="node"
+          fi
+
+          echo "stack=${STACK}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Detected stack: ${STACK}"
+
+          # ── Python path ───────────────────────────────────────────────────────
+          if [ "${STACK}" = "python" ]; then
+            echo "--- Python path ---"
+
+            # install dependencies
+            if command -v pip >/dev/null 2>&1; then
+              pip install --quiet ".[dev]" 2>/dev/null \
+                || pip install --quiet "." 2>/dev/null \
+                || echo "::notice::pip install had no extras or failed; continuing"
+            fi
+
+            # ruff lint (best-effort: only if ruff section present in pyproject.toml)
+            if grep -q '\[tool\.ruff\]' pyproject.toml 2>/dev/null \
+               || grep -q '\[tool\.ruff\.' pyproject.toml 2>/dev/null; then
+              echo "ruff configured — running lint"
+              pip install --quiet ruff
+              ruff check . || { echo "::error::ruff lint failed"; exit 1; }
+            fi
+
+            # discover test files (tests/ dir or test_*.py / *_test.py at root)
+            TEST_FILES=$(find . -maxdepth 3 \
+              \( -path '*/tests/*.py' -o -name 'test_*.py' -o -name '*_test.py' \) \
+              2>/dev/null | head -1 || true)
+
+            if [ -z "${TEST_FILES}" ]; then
+              echo "::notice::No pytest-discoverable test files found — passing (early-stage repo)"
+              exit 0
+            fi
+
+            # install pytest
+            pip install --quiet pytest
+
+            # allure (best-effort)
+            if pip install --quiet allure-pytest 2>/dev/null; then
+              ALLURE_ARGS="--alluredir=allure-results"
+            else
+              ALLURE_ARGS=""
+            fi
+
+            # run pytest — propagate real failures; early exit preserves exit code
+            # shellcheck disable=SC2086
+            pytest -q ${ALLURE_ARGS}
+            exit $?
+          fi
+
+          # ── Node path ─────────────────────────────────────────────────────────
+          if [ "${STACK}" = "node" ]; then
+            echo "--- Node path ---"
+            npm ci
+
+            HAS_TEST=$(node -e \
+              "const p=require('./package.json');process.exit(p.scripts&&p.scripts.test?0:1)" \
+              2>/dev/null && echo "yes" || echo "no")
+
+            if [ "${HAS_TEST}" = "yes" ]; then
+              npm test
+              exit $?
+            fi
+
+            if [ -f "tsconfig.json" ]; then
+              npx --yes tsc --noEmit
+              exit $?
+            fi
+
+            echo "::notice::No test script and no tsconfig.json — passing (early-stage Node repo)"
+            exit 0
+          fi
+
+          # ── Docs/spec path ────────────────────────────────────────────────────
+          echo "::notice::No testable stack detected (no pyproject.toml, no package.json) — passing"
+          exit 0
+
+      - name: Upload allure results
+        if: always() && steps.run.outputs.stack == 'python'
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+          if-no-files-found: ignore
