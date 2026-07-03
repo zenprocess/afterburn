@@ -1,6 +1,7 @@
 """Analysis passes — extract findings from session JSONL data."""
 
 import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -601,8 +602,39 @@ def run_friction_pass(
     return findings
 
 
+# RLM analysis executes model-authored Python code (see
+# afterburn.vendor.rlm_repl.sandbox). The code is derived from the root LLM
+# analyzing untrusted session-transcript content, so — even though the
+# sandbox restricts builtins and rejects import/dunder-escape patterns — this
+# path is opt-in only. `afterburn discover` MUST NOT silently exec by
+# default; set AFTERBURN_ENABLE_RLM_EXEC=1 to enable it.
+_RLM_EXEC_ENV_VAR = "AFTERBURN_ENABLE_RLM_EXEC"
+_RLM_EXEC_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _rlm_exec_enabled() -> bool:
+    """Whether the operator has opted in to executing model-authored REPL code."""
+    return os.environ.get(_RLM_EXEC_ENV_VAR, "").strip().lower() in _RLM_EXEC_TRUE_VALUES
+
+
 def _rlm_friction_analysis(large_sessions: list[SessionInfo]) -> list[Finding]:
-    """Use RLM REPL to analyze sessions too large for direct parsing."""
+    """Use RLM REPL to analyze sessions too large for direct parsing.
+
+    SECURITY: disabled by default. This runs model-authored Python (inside a
+    restricted sandbox) derived from analyzing untrusted transcript content;
+    an attacker can plant a ```repl payload in a transcript. Set
+    AFTERBURN_ENABLE_RLM_EXEC=1 to opt in.
+    """
+    if not _rlm_exec_enabled():
+        print(
+            f"  [warn] Skipping RLM analysis of {len(large_sessions)} large "
+            f"session(s): this executes model-authored code derived from "
+            f"untrusted transcript content. Set {_RLM_EXEC_ENV_VAR}=1 to "
+            f"opt in.",
+            file=sys.stderr,
+        )
+        return []
+
     try:
         from afterburn.vendor.rlm_repl import RLM_REPL
     except ImportError as e:
