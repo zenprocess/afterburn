@@ -5,19 +5,22 @@ on:
     types: [opened, edited, synchronize]
   issue_comment:
     types: [created]
+  push:
+    branches: ['**']
 
 jobs:
   diode-guard:
-    # Skip regular issue comments; only run on PR events or PR comments
+    # Skip regular issue comments; only run on PR events, PR comments, or pushes
     if: >-
+      github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != '')
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout (PR events only)
-        if: github.event_name == 'pull_request'
+      - name: Checkout (PR/push events only)
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -31,13 +34,22 @@ jobs:
           COMMENT_BODY:   ${{ github.event.comment.body }}
           BASE_SHA:       ${{ github.event.pull_request.base.sha }}
           HEAD_SHA:       ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE:    ${{ github.event.before }}
+          PUSH_AFTER:     ${{ github.event.after }}
         run: |
           set -uo pipefail
           FAILED=0
+          GUARD_PATH=".github/workflows/diode-pr-guard.yml"
+          NULL_SHA="0000000000000000000000000000000000000000"
 
-          # --- build scan corpus ---
+          # --- build message corpus (titles/bodies/comments/commit messages) ---
           if [ "${GH_EVENT}" = "issue_comment" ]; then
             SCAN_TEXT="${COMMENT_BODY:-}"
+          elif [ "${GH_EVENT}" = "push" ]; then
+            SCAN_TEXT=""
+            if [ -n "${PUSH_BEFORE:-}" ] && [ "${PUSH_BEFORE}" != "${NULL_SHA}" ] && git cat-file -e "${PUSH_BEFORE}" 2>/dev/null; then
+              SCAN_TEXT=$(git log --format='%s%n%b' "${PUSH_BEFORE}..${PUSH_AFTER}" 2>/dev/null || true)
+            fi
           else
             SCAN_TEXT="${PR_TITLE:-}"$'\n'"${PR_BODY:-}"
             if [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
@@ -46,14 +58,53 @@ jobs:
             fi
           fi
 
+          # --- build file content/diff corpus (this is the new gap this hardening closes) ---
+          # The guard's own workflow file is excluded: it legitimately contains these
+          # detection patterns as literal strings and must not self-trigger.
+          FILE_TEXT=""
+          CHANGED_FILES=""
+          if [ "${GH_EVENT}" = "push" ]; then
+            if [ -n "${PUSH_BEFORE:-}" ] && [ "${PUSH_BEFORE}" != "${NULL_SHA}" ] && git cat-file -e "${PUSH_BEFORE}" 2>/dev/null; then
+              FILE_TEXT=$(git diff "${PUSH_BEFORE}" "${PUSH_AFTER}" -- . ":(exclude)${GUARD_PATH}" 2>/dev/null || true)
+              CHANGED_FILES=$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- . 2>/dev/null || true)
+            else
+              # New branch (no prior SHA) or force-push whose old tip is no longer
+              # reachable — fall back to scanning the full checked-out tree.
+              FILE_TEXT=$(git grep -I -n "" -- . ":(exclude)${GUARD_PATH}" 2>/dev/null || true)
+              CHANGED_FILES=$(git ls-tree -r --name-only HEAD 2>/dev/null || true)
+            fi
+          elif [ "${GH_EVENT}" = "pull_request" ]; then
+            if [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+              FILE_TEXT=$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- . ":(exclude)${GUARD_PATH}" 2>/dev/null || true)
+              CHANGED_FILES=$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" -- . 2>/dev/null || true)
+            fi
+          fi
+
+          COMBINED="${SCAN_TEXT}"$'\n'"${FILE_TEXT}"
+
           # --- generic pattern checks (always run, even when denylist is absent) ---
-          if printf '%s' "${SCAN_TEXT}" | grep -qiE '[a-z0-9-]+\.zp\.digital'; then
+          if printf '%s' "${COMBINED}" | grep -qiE '[a-z0-9-]+\.zp\.digital'; then
             echo "::error::Private infrastructure domain detected (*.zp.digital). Do not reference internal infrastructure in a public repo."
             FAILED=1
           fi
 
-          if printf '%s' "${SCAN_TEXT}" | grep -qE 'sk-[A-Za-z0-9-]{8,}'; then
-            echo "::error::Potential secret token detected (sk-... pattern). Do not include credentials in a public repo."
+          if printf '%s' "${COMBINED}" | grep -qE '\b(10\.0\.201\.[0-9]{1,3}|192\.168\.4\.[0-9]{1,3}|192\.168\.139\.[0-9]{1,3})\b'; then
+            echo "::error::Internal IP address detected. Do not reference internal network addresses in a public repo."
+            FAILED=1
+          fi
+
+          if printf '%s' "${COMBINED}" | grep -qiE '\b(srv1|dellsrv|zenstor)\b|mac\.zp'; then
+            echo "::error::Internal machine/hostname reference detected. Do not reference internal machine names in a public repo."
+            FAILED=1
+          fi
+
+          if printf '%s' "${COMBINED}" | grep -qE '(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AGE-SECRET-KEY-[A-Z0-9]+|-----BEGIN[ A-Z]*PRIVATE KEY-----)'; then
+            echo "::error::Potential secret/key material detected. Do not include credentials in a public repo."
+            FAILED=1
+          fi
+
+          if printf '%s\n' "${CHANGED_FILES}" | grep -qE '(^|/)\.env$'; then
+            echo "::error::A real .env file (not .env.example/.env.sample/.env.template) was added or modified. Public repos must never commit .env files with real values."
             FAILED=1
           fi
 
@@ -66,7 +117,7 @@ jobs:
               [ -z "${term}" ] && continue
               # Escape regex metacharacters; never echo the term itself in output
               ESCAPED=$(printf '%s' "${term}" | sed 's/[[\.*^$(){}?+|]/\\&/g')
-              if printf '%s' "${SCAN_TEXT}" | grep -qiP "\\b${ESCAPED}\\b" 2>/dev/null; then
+              if printf '%s' "${COMBINED}" | grep -qiP "\\b${ESCAPED}\\b" 2>/dev/null; then
                 echo "::error::Private-concept leak detected (do not reference internal projects in a public repo)."
                 FAILED=1
               fi
