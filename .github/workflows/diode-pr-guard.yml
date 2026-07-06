@@ -83,27 +83,33 @@ jobs:
           COMBINED="${SCAN_TEXT}"$'\n'"${FILE_TEXT}"
 
           # --- generic pattern checks (always run, even when denylist is absent) ---
-          if printf '%s' "${COMBINED}" | grep -qiE '[a-z0-9-]+\.zp\.digital'; then
+          # NOTE: use here-strings (<<<), never `printf | grep -q`. grep -q exits as
+          # soon as it finds a match; on a large COMBINED corpus (e.g. the full-tree
+          # fallback scan) that races printf's write and SIGPIPEs it. Under `pipefail`
+          # that flips a TRUE match into a FALSE `if` condition — a false negative that
+          # was verified live (afterburn run 28798311446 reported success on a planted
+          # leak until this fix). Here-strings avoid the pipe entirely.
+          if grep -qiE '[a-z0-9-]+\.zp\.digital' <<< "${COMBINED}"; then
             echo "::error::Private infrastructure domain detected (*.zp.digital). Do not reference internal infrastructure in a public repo."
             FAILED=1
           fi
 
-          if printf '%s' "${COMBINED}" | grep -qE '\b(10\.0\.201\.[0-9]{1,3}|192\.168\.4\.[0-9]{1,3}|192\.168\.139\.[0-9]{1,3})\b'; then
+          if grep -qE '\b(10\.0\.201\.[0-9]{1,3}|192\.168\.4\.[0-9]{1,3}|192\.168\.139\.[0-9]{1,3})\b' <<< "${COMBINED}"; then
             echo "::error::Internal IP address detected. Do not reference internal network addresses in a public repo."
             FAILED=1
           fi
 
-          if printf '%s' "${COMBINED}" | grep -qiE '\b(srv1|dellsrv|zenstor)\b|mac\.zp'; then
+          if grep -qiE '\b(srv1|dellsrv|zenstor)\b|mac\.zp' <<< "${COMBINED}"; then
             echo "::error::Internal machine/hostname reference detected. Do not reference internal machine names in a public repo."
             FAILED=1
           fi
 
-          if printf '%s' "${COMBINED}" | grep -qE '(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AGE-SECRET-KEY-[A-Z0-9]+|-----BEGIN[ A-Z]*PRIVATE KEY-----)'; then
+          if grep -qE '(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AGE-SECRET-KEY-[A-Z0-9]+|-----BEGIN[ A-Z]*PRIVATE KEY-----)' <<< "${COMBINED}"; then
             echo "::error::Potential secret/key material detected. Do not include credentials in a public repo."
             FAILED=1
           fi
 
-          if printf '%s\n' "${CHANGED_FILES}" | grep -qE '(^|/)\.env$'; then
+          if grep -qE '(^|/)\.env$' <<< "${CHANGED_FILES}"; then
             echo "::error::A real .env file (not .env.example/.env.sample/.env.template) was added or modified. Public repos must never commit .env files with real values."
             FAILED=1
           fi
@@ -117,7 +123,7 @@ jobs:
               [ -z "${term}" ] && continue
               # Escape regex metacharacters; never echo the term itself in output
               ESCAPED=$(printf '%s' "${term}" | sed 's/[[\.*^$(){}?+|]/\\&/g')
-              if printf '%s' "${COMBINED}" | grep -qiP "\\b${ESCAPED}\\b" 2>/dev/null; then
+              if grep -qiP "\\b${ESCAPED}\\b" <<< "${COMBINED}" 2>/dev/null; then
                 echo "::error::Private-concept leak detected (do not reference internal projects in a public repo)."
                 FAILED=1
               fi
